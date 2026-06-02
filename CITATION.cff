@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+title: "AnalysisXMD: A browser-based dashboard for protein–ligand molecular dynamics analysis"
+message: "If you use this software in your research, please cite it as below."
+type: software
+authors:
+  - given-names: "Kevin Anthony"
+    family-names: "Oré Maldonado"
+    email: k.ormaldonado@uandresbello.edu
+    affiliation: "Computational Chemistry Research Group, Universidad Andrés Bello (UNAB), Chile"
+abstract: >-
+  AnalysisXMD is a lightweight, single-file web dashboard for the analysis and
+  visualization of molecular dynamics simulations of protein–ligand systems.
+  It reads native GROMACS and AMBER (cpptraj) output and provides RMSD, RMSF,
+  PCA, distance, hydrogen-bond, multi-replica, and RMSD density (KDE) analyses,
+  an interactive trajectory viewer with VMD-style playback, and
+  publication-quality figure export (300–600 DPI PNG and editable SVG).
+keywords:
+  - molecular dynamics
+  - protein-ligand
+  - GROMACS
+  - AMBER
+  - cpptraj
+  - RMSD
+  - RMSF
+  - hydrogen bonds
+  - computational chemistry
+  - data visualization
+license: MIT
+version: "1.0.0"
+date-released: "2026-01-01"

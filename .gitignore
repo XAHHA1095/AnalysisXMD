@@ -1,0 +1,31 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE / local tooling
+.vscode/
+.idea/
+.claude/
+*.swp
+*~
+
+# Local user data — do NOT commit research data or trajectories
+*.xtc
+*.trr
+*.nc
+*.dcd
+*.mdcrd
+*.prmtop
+*.tpr
+*.gro
+# Keep example/demo files explicitly with:  git add -f examples/yourfile.xvg
+
+# Personal logo image (optional, not required by the app)
+charizard.jpg
+charizard.jpeg
+charizard.png
+
+# Temporary / export artifacts
+*.tmp
+*_*x*.png
