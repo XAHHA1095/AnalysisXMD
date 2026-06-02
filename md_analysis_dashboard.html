@@ -8,6 +8,8 @@
 <script src="https://unpkg.com/ngl@2.0.0-dev.37/dist/ngl.js"></script>
 <!-- OpenChemLib: clean 2D ligand depiction (BIOVIA-style flat layout) -->
 <script src="https://unpkg.com/openchemlib@8.7.0/dist/openchemlib-full.js"></script>
+<!-- Box-plot / violin controllers for Chart.js (RMSD distribution boxes) -->
+<script src="https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4.4.4/build/index.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -718,15 +720,24 @@ input[type=range].traj-slider{width:180px}
     <div class="ctrl-group">
       <label><input type="checkbox" id="rmsd-pub" onchange="renderRMSD()"> Publication style (running mean ± SD)</label>
     </div>
+    <div class="ctrl-group">
+      <label><input type="checkbox" id="rmsd-box" onchange="toggleRMSDBox()"> Distribution box plot (side)</label>
+    </div>
   </div>
 
   <div class="stats-row" id="rmsd-stats"></div>
 
-  <div class="chart-card">
-    <div class="chart-header">
-      <span class="chart-title" id="rmsd-chart-title">— no data loaded —</span>
+  <div style="display:flex;gap:12px;align-items:stretch">
+    <div class="chart-card" id="rmsd-box-card" style="display:none;width:210px;flex-shrink:0;margin-bottom:16px">
+      <div class="chart-header"><span class="chart-title">Distribution</span></div>
+      <div class="canvas-wrap" style="height:280px"><canvas id="rmsdBoxChart"></canvas></div>
     </div>
-    <div class="canvas-wrap" style="height:280px"><canvas id="rmsdChart"></canvas></div>
+    <div class="chart-card" style="flex:1;min-width:0">
+      <div class="chart-header">
+        <span class="chart-title" id="rmsd-chart-title">— no data loaded —</span>
+      </div>
+      <div class="canvas-wrap" style="height:280px"><canvas id="rmsdChart"></canvas></div>
+    </div>
   </div>
 
   <div class="toolbar">
@@ -1074,6 +1085,7 @@ time_ns,rmsd_A
       <select id="multi-view" onchange="onMultiViewChange()">
         <option value="time">RMSD vs Time</option>
         <option value="density">RMSD Density Distribution (KDE)</option>
+        <option value="box">Box plot (distribution + points)</option>
       </select>
     </div>
     <div class="ctrl-group" id="multi-bw-group" style="display:none">
@@ -1682,18 +1694,18 @@ function renderRMSD(){
         scales:{x:xax, y:yax}
       }
     });
-    return;
+  }else{
+    const pts=smooth(state.rmsd.pts,w);
+    charts.rmsd=new Chart(ctx,{
+      type:'line',
+      data:{datasets:[{label:'RMSD',data:pts,borderColor:color,borderWidth:1.5,
+        backgroundColor:fill?color+'22':'transparent',fill,pointRadius:0,tension:0.3}]},
+      options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+        plugins:{legend:{display:false},tooltip:{enabled:true}},
+        scales:{x:xax, y:yax}}
+    });
   }
-
-  const pts=smooth(state.rmsd.pts,w);
-  charts.rmsd=new Chart(ctx,{
-    type:'line',
-    data:{datasets:[{label:'RMSD',data:pts,borderColor:color,borderWidth:1.5,
-      backgroundColor:fill?color+'22':'transparent',fill,pointRadius:0,tension:0.3}]},
-    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
-      plugins:{legend:{display:false},tooltip:{enabled:true}},
-      scales:{x:xax, y:yax}}
-  });
+  if(document.getElementById('rmsd-box')?.checked) renderRMSDBox();
 }
 
 // ================================================================
@@ -1857,6 +1869,38 @@ function copyCmd(id){
     const old=btn.textContent; btn.textContent='copied!';
     setTimeout(()=>btn.textContent=old,1200);
   }).catch(()=>alert('Copy failed — select and copy manually.'));
+}
+
+// Side box plot for the single RMSD series (distribution + jittered points)
+function toggleRMSDBox(){
+  const on=document.getElementById('rmsd-box').checked;
+  document.getElementById('rmsd-box-card').style.display=on?'block':'none';
+  if(on) renderRMSDBox(); else if(charts.rmsdbox){charts.rmsdbox.destroy();delete charts.rmsdbox;}
+}
+function renderRMSDBox(){
+  if(!state.rmsd.pts.length) return;
+  if(!window.Chart || !Chart.registry.getController('boxplot')){ return; }
+  if(charts.rmsdbox) charts.rmsdbox.destroy();
+  const color=document.getElementById('rmsd-color').value;
+  const vals=state.rmsd.pts.map(p=>p.y);
+  const ctx=document.getElementById('rmsdBoxChart').getContext('2d');
+  charts.rmsdbox=new Chart(ctx,{
+    type:'boxplot',
+    data:{labels:['RMSD'],datasets:[{
+      label:'RMSD', data:[vals],
+      backgroundColor:[hexToRgba(color,0.5)], borderColor:[color], borderWidth:1.3,
+      itemRadius:1.5, itemStyle:'circle', itemBackgroundColor:[hexToRgba(color,0.28)], itemBorderColor:'transparent',
+      outlierRadius:2, outlierBackgroundColor:'rgba(110,110,110,0.5)', meanRadius:0, medianColor:'#1a1a1a', medianWidth:1.6
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      plugins:{legend:{display:false},tooltip:{enabled:true}},
+      scales:{
+        x:{ticks:{color:TICK_CLR,font:{size:10}},grid:{display:false},border:{color:AXIS_CLR}},
+        y:{min:0,title:{display:true,text:'RMSD (Å)',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:10}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
+      }
+    }
+  });
 }
 
 // ================================================================
@@ -2127,10 +2171,12 @@ function hexToRgba(hex, a){
 function onMultiViewChange(){
   const v=document.getElementById('multi-view').value;
   const dens=v==='density';
+  const box=v==='box';
   document.getElementById('multi-bw-group').style.display=dens?'flex':'none';
   document.getElementById('multi-fill-group').style.display=dens?'flex':'none';
-  document.getElementById('multi-unit-group').style.display=dens?'flex':'none';
+  document.getElementById('multi-unit-group').style.display=(dens||box)?'flex':'none';
   document.getElementById('multi-axis-group').style.display=dens?'flex':'none';
+  const pg=document.getElementById('multi-pub-group'); if(pg) pg.style.display=(v==='time')?'flex':'none';
   renderMulti();
 }
 
@@ -2147,9 +2193,14 @@ function renderMulti(){
 
   // show/hide the avg-window control
   const pub=document.getElementById('multi-pub')?.checked;
-  const winGrp=document.getElementById('multi-pubwin-group'); if(winGrp) winGrp.style.display=(view!=='density'&&pub)?'flex':'none';
-  const pubGrp=document.getElementById('multi-pub-group'); if(pubGrp) pubGrp.style.display=(view!=='density')?'flex':'none';
+  const winGrp=document.getElementById('multi-pubwin-group'); if(winGrp) winGrp.style.display=(view==='time'&&pub)?'flex':'none';
+  const pubGrp=document.getElementById('multi-pub-group'); if(pubGrp) pubGrp.style.display=(view==='time')?'flex':'none';
 
+  if(view==='box'){
+    renderMultiBox(ctx);
+    document.getElementById('multi-legend').innerHTML='';
+    return;
+  }
   if(view==='density'){
     renderMultiDensity(ctx);
   }else{
@@ -2182,6 +2233,48 @@ function renderMulti(){
     const vals=s.pts.map(p=>p.y), mean=(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(3);
     return`<div class="rep-item"><div class="rep-dot" style="background:${DISPLAY_PALETTE[i]}"></div>${state.multi.names[i]||'Replica '+(i+1)} — mean ${mean} Å</div>`;
   }).join('');
+}
+
+// Box plot of RMSD distribution per compound/replica, with jittered raw points
+function renderMultiBox(ctx){
+  if(typeof window.Chart==='undefined' || !Chart.registry.getController('boxplot')){
+    // plugin not available → fall back to density
+    document.getElementById('multi-chart-title').textContent='Box plot plugin not loaded — showing density instead';
+    renderMultiDensity(ctx); return;
+  }
+  const unit=document.getElementById('multi-unit')?.value||'A';
+  const scale=unit==='nm'?0.1:1, uLabel=unit==='nm'?'nm':'Å';
+  const labels=state.multi.names.map((n,i)=>n||('Replica '+(i+1)));
+  const data=state.multi.series.map(s=>s.pts.map(p=>p.y*scale));
+  const col=i=>DISPLAY_PALETTE[i%DISPLAY_PALETTE.length];
+
+  charts.multi=new Chart(ctx,{
+    type:'boxplot',
+    data:{labels, datasets:[{
+      label:'RMSD',
+      data,
+      backgroundColor:labels.map((_,i)=>hexToRgba(col(i),0.55)),
+      borderColor:labels.map((_,i)=>col(i)),
+      borderWidth:1.3,
+      // jittered raw points (strip plot)
+      itemRadius:1.6, itemStyle:'circle',
+      itemBackgroundColor:labels.map((_,i)=>hexToRgba(col(i),0.30)),
+      itemBorderColor:'transparent',
+      outlierRadius:2.2, outlierBackgroundColor:'rgba(110,110,110,0.5)',
+      meanRadius:0, medianColor:'#1a1a1a', medianWidth:1.6,
+      lowerColor:undefined
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      plugins:{legend:{display:false},tooltip:{enabled:true}},
+      scales:{
+        x:{ticks:{color:TICK_CLR,font:{size:11},maxRotation:35,minRotation:25},grid:{display:false},border:{color:AXIS_CLR}},
+        y:{min:0,title:{display:true,text:`RMSD (${uLabel})`,color:TEXT_CLR,font:CHART_FONT},
+           ticks:{color:TICK_CLR,font:{size:10}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
+      }
+    }
+  });
+  document.getElementById('multi-chart-title').textContent=labels.length+' compound(s) — RMSD distribution (box plot)';
 }
 
 function renderMultiDensity(ctx){
@@ -2330,12 +2423,15 @@ async function exportHighDPI(key, W, H, bg){
 
   // Clone datasets with publication style
   const srcType=src.config.type;
-  // Band (mean ± SD) charts have helper datasets (_raw/_lo/_band) → preserve their own colors
+  // Band (mean ± SD) charts and box/violin plots keep their own per-series colors
   const hasBand=src.data.datasets.some(d=>(d.label||'').startsWith('_'));
+  const keepColors=hasBand || srcType==='boxplot' || srcType==='violin';
   const datasets=src.data.datasets.map((ds,i)=>{
-    if(hasBand){
+    if(keepColors){
       return{ ...ds,
-        borderWidth:(ds.borderWidth||0)*Math.max(1,sc*0.8),
+        borderWidth:(ds.borderWidth||1)*Math.max(1,sc*0.7),
+        itemRadius: ds.itemRadius!==undefined ? Math.max(0.6, ds.itemRadius*sc*0.7) : undefined,
+        outlierRadius: ds.outlierRadius!==undefined ? ds.outlierRadius*sc*0.7 : undefined,
         pointRadius:ds.type==='scatter'?(ds.pointRadius||2)*sc:0, pointHoverRadius:0 };
     }
     const base=pal[i%pal.length];
