@@ -1,9 +1,12 @@
 # AnalysisXMD — Protein–Ligand MD Analysis Dashboard
 
+[![Try it online](https://img.shields.io/badge/▶_Try_it-online-2ea44f)](https://xahha1095.github.io/AnalysisXMD/)
 [![DOI](https://zenodo.org/badge/1256800245.svg)](https://doi.org/10.5281/zenodo.20515932)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A lightweight, **single-file** web dashboard for analyzing and visualizing **Molecular Dynamics (MD)** simulations of protein–ligand systems. Runs entirely in your browser — **no installation, no server, no Python environment required**. Just open the HTML file.
+**▶ Use it now in your browser (no install): https://xahha1095.github.io/AnalysisXMD/**
+
+A lightweight, **single-file** web dashboard for analyzing and visualizing **Molecular Dynamics (MD)** simulations of protein–ligand systems. Runs entirely in your browser — **no installation, no server, no Python environment required**. Just open the HTML file (or use the link above).
 
 Built to read native output from **GROMACS** and **AMBER** (cpptraj), produce **publication-quality figures (300–600 DPI)**, and interactively visualize trajectories.
 
