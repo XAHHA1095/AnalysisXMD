@@ -17,11 +17,13 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
 body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(160,160,160,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(160,160,160,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
-/* GRAYSCALE THEME for the data UI. The 3D molecular viewer and the 2D interaction
-   diagram (Interactions tab) keep FULL COLOR — molecules need CPK/chain colors. */
 .app{position:relative;z-index:1;max-width:1280px;margin:0 auto;padding:0 24px 80px}
-.topbar,.nav,.sim-info,.site-footer{filter:grayscale(1)}
-.section:not(#tab-interactions){filter:grayscale(1)}
+/* LIGHT FIGURES preview — chart cards turn white so the on-screen plot matches the
+   downloaded figure (white background + color). Toggle with the "Light figures" button. */
+body.fig-white .chart-card{background:#ffffff;border-color:#e3e3e3}
+body.fig-white .chart-title{color:#555}
+body.fig-white .stat-card{background:#fafafa;border-color:#e3e3e3}
+body.fig-white .stat-label{color:#888}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 0 16px;border-bottom:1px solid var(--border);margin-bottom:28px}
 .logo{display:flex;align-items:center;gap:10px}
 .logo-icon{width:120px;height:120px;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative}
@@ -118,7 +120,7 @@ input[type=range].traj-slider{width:180px}
 .file-badge-remove{cursor:pointer;color:var(--text3);font-size:13px;line-height:1}.file-badge-remove:hover{color:var(--red)}
 .files-loaded{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
 /* Export modal */
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;align-items:center;justify-content:center;filter:grayscale(1)}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;align-items:center;justify-content:center}
 .modal-bg.open{display:flex}
 .modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:28px;max-width:440px;width:90%}
 .modal h3{font-size:16px;font-weight:500;margin-bottom:18px}
@@ -302,7 +304,10 @@ input[type=range].traj-slider{width:180px}
       <div class="logo-sub">AMBER · GROMACS · cpptraj · gmx</div>
     </div>
   </div>
-  <div id="ff-badge" class="badge-ff">Protein–Ligand MD</div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <button class="btn" id="fig-theme-btn" onclick="setFigureTheme(!FIG_WHITE)" title="Preview figures on white background (matches the downloaded image)">☀ Light figures</button>
+    <div id="ff-badge" class="badge-ff">Protein–Ligand MD</div>
+  </div>
 </div>
 
 <!-- SIM INFO -->
@@ -1146,6 +1151,7 @@ time_ns,rmsd_A
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Export figure
     </button>
+    <button class="btn" onclick="exportMultiCSV()">⬇ Export CSV (raw)</button>
     <button class="btn" onclick="clearSeries('multi')">Clear all</button>
   </div>
 </div>
@@ -1599,10 +1605,67 @@ function updateSmooth(type, val){
 // ================================================================
 // CHART AXIS HELPERS
 // ================================================================
-const GRID_CLR='rgba(56,189,248,0.07)';
-const AXIS_CLR='rgba(56,189,248,0.2)';
-const TEXT_CLR='#94a3b8';
-const TICK_CLR='#4b5563';
+let GRID_CLR='rgba(56,189,248,0.07)';
+let AXIS_CLR='rgba(56,189,248,0.2)';
+let TEXT_CLR='#94a3b8';
+let TICK_CLR='#4b5563';
+let FIG_WHITE=false;
+
+// Toggle white "publication" background for the on-screen figures (matches the export)
+function setFigureTheme(white){
+  FIG_WHITE=white;
+  document.body.classList.toggle('fig-white', white);
+  if(white){ TEXT_CLR='#333333'; TICK_CLR='#555555'; GRID_CLR='#e8e8e8'; AXIS_CLR='#999999'; }
+  else { TEXT_CLR='#94a3b8'; TICK_CLR='#4b5563'; GRID_CLR='rgba(56,189,248,0.07)'; AXIS_CLR='rgba(56,189,248,0.2)'; }
+  const btn=document.getElementById('fig-theme-btn'); if(btn) btn.textContent=white?'🌙 Dark figures':'☀ Light figures';
+  rerenderAll();
+}
+function rerenderAll(){
+  if(state.rmsd.pts.length) renderRMSD();
+  if(state.rmsf.series.length) renderRMSF();
+  if(state.pca.points.length) renderPCA();
+  if(state.dist.replicas.length) renderDist();
+  if(state.hbcount.pts.length) renderHBCount();
+  if(state.hbdetail.rows.length) renderHBTable();
+  if(state.multi.series.length) renderMulti();
+}
+
+// Dashed MEAN line drawn over each box of a box plot (median is shown by the plugin)
+const boxMeanLine={
+  id:'boxMeanLine',
+  afterDatasetsDraw(chart){
+    if(chart.config.type!=='boxplot') return;
+    const ctx=chart.ctx, yScale=chart.scales.y;
+    chart.data.datasets.forEach((ds,di)=>{
+      const meta=chart.getDatasetMeta(di);
+      meta.data.forEach((el,i)=>{
+        const vals=ds.data[i];
+        const arr=Array.isArray(vals)?vals:(vals&&vals.items)?vals.items:null;
+        if(!arr||!arr.length) return;
+        const mean=arr.reduce((a,b)=>a+b,0)/arr.length;
+        const yPix=yScale.getPixelForValue(mean);
+        const w=(el.width||30)*0.9, x=el.x;
+        ctx.save();
+        ctx.strokeStyle=FIG_WHITE?'#111111':'#0b0b0b';
+        ctx.lineWidth=1.8; ctx.setLineDash([6,4]);
+        ctx.beginPath(); ctx.moveTo(x-w/2,yPix); ctx.lineTo(x+w/2,yPix); ctx.stroke();
+        ctx.restore();
+      });
+    });
+  }
+};
+try{ if(window.Chart) Chart.register(boxMeanLine); }catch(e){ console.warn('boxMeanLine register:',e); }
+
+// Export the raw multi-replica RMSD data as tidy CSV (for plotting elsewhere)
+function exportMultiCSV(){
+  if(!state.multi.series.length){alert('No data loaded.');return;}
+  let csv='compound,time_ns,rmsd_A\n';
+  state.multi.series.forEach((s,i)=>{
+    const name=(state.multi.names[i]||('Replica_'+(i+1))).replace(/[,\n]/g,'_');
+    s.pts.forEach(p=>{ csv+=`${name},${p.x.toFixed(4)},${p.y.toFixed(4)}\n`; });
+  });
+  dlBlob(csv,'text/csv','multi_rmsd_raw.csv');
+}
 const CHART_FONT={family:"'JetBrains Mono',monospace",size:11};
 
 function autoStep(range){
@@ -2484,14 +2547,20 @@ async function exportHighDPI(key, W, H, bg){
     }
   });
 
-  await new Promise(r=>setTimeout(r,350));
-  dlBlob(await new Promise(r=>{
-    offCanvas.toBlob(b=>{
-      const reader=new FileReader();reader.onload=e=>r(e.target.result.split(',')[1]);reader.readAsDataURL(b);
-    },'image/png',1.0);
-  }),'image/png',key+'_'+W+'x'+H+'.png');
-  // simpler download
-  const a=document.createElement('a');a.href=offCanvas.toDataURL('image/png',1.0);a.download=key+'_'+W+'x'+H+'.png';a.click();
+  // Wait until the chart is fully drawn (box plots with many points need longer),
+  // then refill the background BEHIND the chart and do a single clean download.
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  await new Promise(r=>setTimeout(r, srcType==='boxplot'?800:300));
+  // Composite onto a guaranteed solid background (so 'white' truly fills the PNG)
+  if(bg!=='transparent'){
+    const final=document.createElement('canvas'); final.width=W; final.height=H;
+    const fctx=final.getContext('2d');
+    fctx.fillStyle=bg; fctx.fillRect(0,0,W,H);
+    fctx.drawImage(offCanvas,0,0);
+    const a=document.createElement('a');a.href=final.toDataURL('image/png',1.0);a.download=key+'_'+W+'x'+H+'.png';a.click();
+  }else{
+    const a=document.createElement('a');a.href=offCanvas.toDataURL('image/png',1.0);a.download=key+'_'+W+'x'+H+'.png';a.click();
+  }
   tempChart.destroy();
 }
 
