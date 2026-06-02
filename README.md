@@ -1,4 +1,4 @@
-# 🔥 AnalysisXMD — Protein–Ligand MD Analysis Dashboard
+# AnalysisXMD — Protein–Ligand MD Analysis Dashboard
 
 A lightweight, **single-file** web dashboard for analyzing and visualizing **Molecular Dynamics (MD)** simulations of protein–ligand systems. Runs entirely in your browser — **no installation, no server, no Python environment required**. Just open the HTML file.
 
@@ -6,7 +6,7 @@ Built to read native output from **GROMACS** and **AMBER** (cpptraj), produce **
 
 ---
 
-## ✨ Features
+## Features
 
 | Module | What it does |
 |--------|--------------|
@@ -24,7 +24,7 @@ Built to read native output from **GROMACS** and **AMBER** (cpptraj), produce **
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 1. **Download** the file `md_analysis_dashboard.html`.
 2. **Double-click it** (or right-click → Open with → your browser).
@@ -34,7 +34,7 @@ Built to read native output from **GROMACS** and **AMBER** (cpptraj), produce **
 
 ---
 
-## 💻 Requirements
+## Requirements
 
 - **A modern web browser**: Google Chrome, Microsoft Edge, Firefox, or Brave (recent version recommended).
 - **Internet connection on first launch** (to load Chart.js and NGL Viewer from CDN).
@@ -44,7 +44,7 @@ Built to read native output from **GROMACS** and **AMBER** (cpptraj), produce **
 
 ---
 
-## 📂 Supported Input Formats
+## Supported Input Formats
 
 The dashboard parses plain-text data files. Comment lines starting with `#`, `@`, or `;` are ignored automatically (so native GROMACS `.xvg` and cpptraj `.dat` work directly).
 
@@ -115,7 +115,7 @@ time_ns,r1,r2,r3
 
 ---
 
-## 🎬 Trajectory Viewer
+## Trajectory Viewer
 
 Open the **"Molecular Dynamics Trajectory Viewer"** panel in the RMSD tab.
 
@@ -147,7 +147,7 @@ Then load `traj_anim.pdb` as the trajectory.
 
 ---
 
-## 📊 Density Distribution (KDE)
+## Density Distribution (KDE)
 
 In the **Multi-Replica** tab, switch *Analysis* to **"RMSD Density Distribution (KDE)"** to produce smooth probability-density curves (like Seaborn `kdeplot`) for each loaded file — ideal for comparing protein vs ligand stability.
 
@@ -157,7 +157,7 @@ In the **Multi-Replica** tab, switch *Analysis* to **"RMSD Density Distribution 
 
 ---
 
-## 🖼️ Exporting Figures
+## Exporting Figures
 
 Every chart has an **Export figure** button:
 
@@ -170,13 +170,13 @@ Clean **CSV export** is also available to share tidy, unit-normalized data.
 
 ---
 
-## 🎨 Grayscale Mode
+## Grayscale Mode
 
 The interface ships in grayscale by default. To restore the original cyan theme, open the HTML in a text editor and remove `filter:grayscale(1)` from the `.app` and `.modal-bg` CSS rules.
 
 ---
 
-## 🔌 Offline Use
+## Offline Use
 
 To run with **zero internet dependency**, download these two libraries next to the HTML and update the two `<script src="...">` lines at the top of the file to point to the local copies:
 
@@ -185,7 +185,7 @@ To run with **zero internet dependency**, download these two libraries next to t
 
 ---
 
-## 🗂️ Repository Structure (suggested)
+## Repository Structure (suggested)
 
 ```
 AnalysisXMD/
@@ -197,7 +197,7 @@ AnalysisXMD/
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
@@ -210,7 +210,7 @@ AnalysisXMD/
 
 ---
 
-## 📜 Citation
+## Citation
 
 If this tool contributes to your research, please cite it:
 
@@ -220,7 +220,7 @@ If this tool contributes to your research, please cite it:
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are very welcome! Bug reports, feature requests, new analysis modules, and documentation improvements all help.
 
@@ -231,7 +231,7 @@ Contributions are very welcome! Bug reports, feature requests, new analysis modu
 
 ---
 
-## 👤 Author
+## Author
 
 **Kevin Anthony Oré Maldonado**
 PhD candidate — Computational Physical Chemistry
@@ -243,7 +243,7 @@ Computational Chemistry Research Group
 
 ---
 
-## 🙌 Credits
+## Credits
 
 - **Concept, design & scientific data:** Kevin Anthony Oré Maldonado
 - **Development:** built with the assistance of **Claude (Anthropic)**
@@ -251,7 +251,7 @@ Computational Chemistry Research Group
 
 ---
 
-## ⚖️ License
+## License
 
 Released under the **MIT License** — free to use, modify, and distribute, including for academic and commercial purposes, with attribution.
 

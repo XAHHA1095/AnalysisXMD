@@ -5,7 +5,7 @@ AnalysisXMD is an open tool for the molecular dynamics community, and contributi
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
 - [How can I contribute?](#how-can-i-contribute)
