@@ -14,7 +14,7 @@ authors:
     orcid: 0000-0001-8863-5200
     affiliation: 1
 affiliations:
-  - name: Computational Chemistry Research Group, Universidad Andrés Bello (UNAB), Santiago, Chile
+  - name: Computational Chemistry Research Group, Universidad Andrés Bello (UNAB), Concepción, Chile
     index: 1
 date: 2 June 2026
 bibliography: paper.bib
