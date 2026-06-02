@@ -1,5 +1,8 @@
 # AnalysisXMD — Protein–Ligand MD Analysis Dashboard
 
+[![DOI](https://zenodo.org/badge/1256800245.svg)](https://doi.org/10.5281/zenodo.20515932)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A lightweight, **single-file** web dashboard for analyzing and visualizing **Molecular Dynamics (MD)** simulations of protein–ligand systems. Runs entirely in your browser — **no installation, no server, no Python environment required**. Just open the HTML file.
 
 Built to read native output from **GROMACS** and **AMBER** (cpptraj), produce **publication-quality figures (300–600 DPI)**, and interactively visualize trajectories.
@@ -214,9 +217,11 @@ AnalysisXMD/
 
 If this tool contributes to your research, please cite it:
 
-> Oré Maldonado, K. A. (2026). *AnalysisXMD: A browser-based dashboard for protein–ligand molecular dynamics analysis.* Computational Chemistry Research Group, Universidad Andrés Bello, Chile.
+> Oré Maldonado, K. A. (2026). *AnalysisXMD: A browser-based dashboard for protein–ligand molecular dynamics analysis* (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.20515932
 
-*(Add a Zenodo DOI here once you archive the repository — GitHub integrates with Zenodo to mint one automatically.)*
+**DOI (all versions):** [10.5281/zenodo.20515932](https://doi.org/10.5281/zenodo.20515932)
+
+A BibTeX entry and other formats are available on the [Zenodo record](https://doi.org/10.5281/zenodo.20515932) and via the "Cite this repository" button on GitHub (`CITATION.cff`).
 
 ---
 
