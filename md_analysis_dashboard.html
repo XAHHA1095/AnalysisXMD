@@ -4364,32 +4364,21 @@ function generate2DInteractionMap(){
   }
 
   // --- Draw connectors + residue bubbles ---
-  // anchorDots: small coloured ring drawn BELOW atom labels (so labels stay readable)
-  // edges: dashed connector lines drawn ABOVE atom labels but below bubbles
-  let anchorDots='', edges='', nodes='';
-  // anchor dot size: fixed small radius, never larger than a label glyph
-  const dotR=Math.min(bw*0.75, 5);
+  // Dashed, coloured connector starts at the EDGE of the anchor atom and points
+  // to the residue bubble, so each line clearly indicates its ligand atom.
+  // (No separate dot markers — only heteroatoms carry a text label.)
+  let edges='', nodes='';
   nodesArr.forEach(nd=>{
     const res=nd.res, type=res.type||classifyInteraction(res.resname,res.dist), col=INTX_COLORS[type];
-    // Anchor dot at the interaction atom — drawn before atomLbls so labels sit on top
-    anchorDots+=`<circle cx="${nd.ap[0].toFixed(1)}" cy="${nd.ap[1].toFixed(1)}" r="${dotR.toFixed(1)}" fill="${col}" stroke="#fff" stroke-width="0.8" opacity="0.9"/>`;
     if(showLines){
-      // Start connector from MOLECULE OUTLINE (not from anchor atom center).
-      const clearR=Math.max(avgBond*0.52, 18);
-      let sx=nd.ap[0], sy=nd.ap[1];
       const ddx=nd.x-nd.ap[0], ddy=nd.y-nd.ap[1], ddl=Math.hypot(ddx,ddy)||1;
-      const ux0=ddx/ddl, uy0=ddy/ddl;
-      let found=false;
-      for(let t=0; t<=ddl+clearR; t+=clearR*0.18){
-        const px=nd.ap[0]+ux0*t, py=nd.ap[1]+uy0*t;
-        let ok=true;
-        for(const lp of ligPos){ if(Math.hypot(px-lp[0],py-lp[1])<clearR){ok=false;break;} }
-        if(ok){ sx=px; sy=py; found=true; break; }
-      }
-      if(!found){ sx=nd.ap[0]+ux0*clearR*1.3; sy=nd.ap[1]+uy0*clearR*1.3; }
-      let dx=nd.x-sx, dy=nd.y-sy, d=Math.hypot(dx,dy)||1, ux=dx/d, uy=dy/d;
+      const ux=ddx/ddl, uy=ddy/ddl;
+      // start just past the atom's ball / label so the line touches but doesn't cover it
+      const anchorEl=G.ligAtoms[res.anchor]?.el||'C';
+      const gap=Math.min((lblR[res.anchor]||ballR(anchorEl)||4)+2, ddl*0.45);
+      const sx=nd.ap[0]+ux*gap, sy=nd.ap[1]+uy*gap;
       const ex=nd.x-ux*(nd.rx*0.7), ey=nd.y-uy*(nd.ry*0.7);
-      edges+=`<line x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${col}" stroke-width="1.7" stroke-dasharray="6 4"/>`;
+      edges+=`<line x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${col}" stroke-width="1.6" stroke-dasharray="5 4"/>`;
       if(showEdgeLabel||showDist){
         const heavyName=G.ligAtoms[res.anchor]?.name||res.ligAtom;
         const el = showEdgeLabel ? (showDist?`${heavyName} ${res.dist.toFixed(1)}Å`:heavyName) : `${res.dist.toFixed(1)}Å`;
@@ -4411,9 +4400,10 @@ function generate2DInteractionMap(){
   const acc=(x,y)=>{minX=Math.min(minX,x);minY=Math.min(minY,y);maxX=Math.max(maxX,x);maxY=Math.max(maxY,y);};
   G.drawLocal.forEach(ll=>{const p=scr[ll]; if(p) acc(p[0],p[1]);});
   nodesArr.forEach(nd=>{ acc(nd.x-nd.rx,nd.y-nd.ry); acc(nd.x+nd.rx,nd.y+nd.ry); });
-  // Drawing order: surface → bonds → balls → anchor dots → atom labels → connector lines → residue bubbles
-  // Anchor dots BEFORE atomLbls so the CPK-coloured atom label is always readable on top
-  intx2dSVG=frameSVG(minX,minY,maxX,maxY,`${surface}${skel}${balls}${anchorDots}${atomLbls}${edges}${nodes}`,G.residues,avgBond);
+  // Drawing order: surface → connector lines → bonds → balls → atom labels → residue bubbles
+  // Connectors go BEHIND the molecule so they tuck under bonds/atoms; only the
+  // heteroatom text labels sit on the atoms (carbons stay unlabelled).
+  intx2dSVG=frameSVG(minX,minY,maxX,maxY,`${surface}${edges}${skel}${balls}${atomLbls}${nodes}`,G.residues,avgBond);
   showIntx2D();
 }
 
