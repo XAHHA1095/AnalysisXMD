@@ -334,6 +334,8 @@ input[type=range].traj-slider{width:180px}
   <button class="nav-btn" onclick="switchTab('hbond',this)">H-Bonds</button>
   <button class="nav-btn" onclick="switchTab('interactions',this)">Interactions / 3D</button>
   <button class="nav-btn" onclick="switchTab('multi',this)">Multi-Replica</button>
+  <button class="nav-btn" onclick="switchTab('rg',this)">Rg</button>
+  <button class="nav-btn" onclick="switchTab('cmap',this)">Contact Map</button>
 </nav>
 
 <!-- ================================================================ INTERACTIONS / 3D VIEWER ================================================================ -->
@@ -1156,6 +1158,191 @@ time_ns,rmsd_A
   </div>
 </div>
 
+<!-- ================================================================ RADIUS OF GYRATION ================================================================ -->
+<div id="tab-rg" class="section">
+  <p style="font-size:13px;color:var(--text2);margin-bottom:18px">Radius of gyration (Rg) vs time. Supports GROMACS <code>gmx gyrate</code> XVG (multi-column: Rg Rgx Rgy Rgz) and cpptraj <code>radgyr</code> DAT.</p>
+
+  <div class="upload-zone" id="zone-rg"
+       ondragover="dragOver(event,'zone-rg')" ondragleave="dragLeave('zone-rg')"
+       ondrop="dropFile(event,'rg')" onclick="document.getElementById('file-rg').click()">
+    <div class="upload-icon">📂</div>
+    <h3>Load Rg data</h3>
+    <p><code>.xvg</code> (gmx gyrate) &nbsp;·&nbsp; <code>.dat/.txt</code> (cpptraj radgyr) &nbsp;·&nbsp; <code>.csv</code><br>
+       GROMACS nm→Å and ps→ns converted automatically. Multi-column XVG shows Rg + components.</p>
+  </div>
+  <input type="file" id="file-rg" accept=".xvg,.dat,.txt,.csv" onchange="handleFile(event,'rg')">
+
+  <div class="controls-row">
+    <div class="ctrl-group">
+      <span class="ctrl-label">Show columns:</span>
+      <select id="rg-col" onchange="renderRg()">
+        <option value="all">All (Rg + components)</option>
+        <option value="0">Rg only</option>
+        <option value="1">Rgx</option>
+        <option value="2">Rgy</option>
+        <option value="3">Rgz</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">Smoothing:</span>
+      <input type="range" min="1" max="100" value="1" id="rg-smooth" oninput="document.getElementById('rg-smooth-val').textContent=this.value;renderRg()">
+      <span class="ctrl-label" id="rg-smooth-val">1</span>
+    </div>
+    <div class="ctrl-group">
+      <label><input type="checkbox" id="rg-fill" onchange="renderRg()" checked> Fill area</label>
+    </div>
+    <div class="ctrl-group">
+      <label><input type="checkbox" id="rg-pub" onchange="renderRg()"> Publication style (mean ± SD)</label>
+    </div>
+  </div>
+
+  <div class="stats-row" id="rg-stats"></div>
+
+  <div class="chart-card">
+    <div class="chart-header"><span class="chart-title" id="rg-chart-title">— no data loaded —</span></div>
+    <div class="canvas-wrap" style="height:280px"><canvas id="rgChart"></canvas></div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="openExport('rg')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export figure
+    </button>
+    <button class="btn" onclick="exportCSV('rg')">Export CSV</button>
+  </div>
+
+  <div class="format-hint">
+    <h4>FILE FORMAT</h4>
+    <pre><span class="hl"># GROMACS: gmx gyrate -f traj.xtc -s topol.tpr -o rg.xvg</span>
+<span class="hl">@ xaxis label "Time (ps)"</span>     ← auto ns
+<span class="hl">@ yaxis label "Rg (nm)"</span>      ← auto Å
+0      2.142  1.341  1.852  1.409    ← Rg Rgx Rgy Rgz
+1000   2.138  ...
+
+<span class="hl"># cpptraj: radgyr out rg.dat</span>
+#Frame  RoG
+1       21.42</pre>
+  </div>
+</div>
+
+<!-- ================================================================ CONTACT MAP ================================================================ -->
+<div id="tab-cmap" class="section">
+  <p style="font-size:13px;color:var(--text2);margin-bottom:18px">
+    Residue–residue contact map. Compute directly from the structure loaded in the viewer
+    (Cα or minimum heavy-atom distance), or upload a pre-computed frequency/distance matrix.
+  </p>
+
+  <!-- MODE SELECTOR -->
+  <div class="controls-row" style="margin-bottom:16px">
+    <div class="ctrl-group">
+      <span class="ctrl-label">Source:</span>
+      <select id="cmap-source" onchange="onCmapSourceChange()">
+        <option value="structure">From loaded structure (viewer)</option>
+        <option value="file">Upload matrix file</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- FROM STRUCTURE -->
+  <div id="cmap-from-struct">
+    <div class="controls-row">
+      <div class="ctrl-group">
+        <span class="ctrl-label">Distance type:</span>
+        <select id="cmap-dtype">
+          <option value="ca">Cα – Cα</option>
+          <option value="min">Min heavy atom</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Cutoff (Å):</span>
+        <input type="number" id="cmap-cut" value="8" step="0.5" min="3" max="20" style="width:65px">
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Chain:</span>
+        <input type="text" id="cmap-chain" value="" placeholder="all" style="width:60px" title="Leave blank for all chains">
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Color scale:</span>
+        <select id="cmap-color">
+          <option value="blues">Blues</option>
+          <option value="reds">Reds</option>
+          <option value="greens">Greens</option>
+          <option value="viridis">Viridis</option>
+          <option value="greys">Greys</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="computeContactMap()">Compute map</button>
+    </div>
+  </div>
+
+  <!-- FROM FILE -->
+  <div id="cmap-from-file" style="display:none">
+    <div class="upload-zone" id="zone-cmap"
+         ondragover="dragOver(event,'zone-cmap')" ondragleave="dragLeave('zone-cmap')"
+         ondrop="dropFile(event,'cmap')" onclick="document.getElementById('file-cmap').click()">
+      <div class="upload-icon">📂</div>
+      <h3>Upload contact matrix</h3>
+      <p>Space- or comma-separated N×N matrix · <code>.dat .txt .csv</code><br>
+         First row/col can be residue labels (detected automatically)</p>
+    </div>
+    <input type="file" id="file-cmap" accept=".dat,.txt,.csv" onchange="handleCmapFile(event)">
+    <div class="controls-row" style="margin-top:12px">
+      <div class="ctrl-group">
+        <span class="ctrl-label">Color scale:</span>
+        <select id="cmap-color-file">
+          <option value="blues">Blues</option>
+          <option value="reds">Reds</option>
+          <option value="greens">Greens</option>
+          <option value="viridis">Viridis</option>
+          <option value="greys">Greys</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label><input type="checkbox" id="cmap-invert"> Invert (1−value)</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATUS + CANVAS -->
+  <div id="cmap-info" style="font-size:12px;color:var(--text3);font-family:var(--mono);margin:10px 0 6px;min-height:18px"></div>
+  <div class="chart-card" id="cmap-card" style="display:none;padding:12px;overflow:auto">
+    <div class="chart-header">
+      <span class="chart-title" id="cmap-title">Contact Map</span>
+    </div>
+    <div style="position:relative;display:inline-block;margin-top:8px">
+      <canvas id="cmapCanvas" style="display:block;image-rendering:pixelated"></canvas>
+      <div id="cmap-tooltip" style="position:absolute;display:none;background:#111;color:#e2e8f0;padding:4px 8px;border-radius:5px;font-size:11px;pointer-events:none;white-space:nowrap;border:1px solid #38bdf8"></div>
+    </div>
+    <!-- Color scale bar -->
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+      <span style="font-size:11px;color:var(--text3)">0</span>
+      <canvas id="cmapScaleBar" width="200" height="14" style="border-radius:3px"></canvas>
+      <span style="font-size:11px;color:var(--text3)" id="cmap-scale-max">—</span>
+      <span style="font-size:11px;color:var(--text3)" id="cmap-scale-unit"></span>
+    </div>
+  </div>
+
+  <div class="toolbar" id="cmap-toolbar" style="display:none">
+    <button class="btn btn-primary" onclick="exportCmapPNG()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export PNG
+    </button>
+    <button class="btn" onclick="exportCmapCSV()">Export CSV matrix</button>
+  </div>
+
+  <div class="format-hint">
+    <h4>FILE FORMAT (matrix upload)</h4>
+    <pre><span class="hl"># Space- or comma-separated N×N matrix (contact freq 0–1 or distance Å)</span>
+<span class="hl"># Optional header row with residue labels</span>
+ALA1  VAL2  LEU3  ...
+0.0   0.82  0.45  ...
+0.82  0.0   0.91  ...
+
+<span class="hl"># Generate with MDAnalysis:</span>
+<span class="hl"># contacts = Contacts(u, select=("backbone","backbone"), method="radius_cut", radius=8).run()</span></pre>
+  </div>
+</div>
+
 <!-- ================================================================ FOOTER / CREDITS ================================================================ -->
 <footer class="site-footer">
   <div class="footer-grid">
@@ -1328,8 +1515,12 @@ function dragOver(e,id){e.preventDefault();document.getElementById(id).classList
 function dragLeave(id){document.getElementById(id).classList.remove('drag-over')}
 function dropFile(e,type){
   e.preventDefault();
-  document.getElementById('zone-'+type).classList.remove('drag-over');
-  if(e.dataTransfer.files[0]) parseFile(e.dataTransfer.files[0],type);
+  const zone=document.getElementById('zone-'+type);
+  if(zone) zone.classList.remove('drag-over');
+  const f=e.dataTransfer.files[0]; if(!f) return;
+  if(type==='rg'){ const r=new FileReader();r.onload=ev=>parseRgFile(ev.target.result,f.name);r.readAsText(f);return; }
+  if(type==='cmap'){ const r=new FileReader();r.onload=ev=>parseCmapFile(ev.target.result,f.name);r.readAsText(f);return; }
+  parseFile(f,type);
 }
 function dropFileMultiple(e,type){
   e.preventDefault();
@@ -1339,7 +1530,12 @@ function dropFileMultiple(e,type){
     else parseMultiFile(f);
   });
 }
-function handleFile(e,type){if(e.target.files[0])parseFile(e.target.files[0],type);}
+function handleFile(e,type){
+  const f=e.target.files[0]; if(!f) return;
+  if(type==='rg'){ const r=new FileReader();r.onload=ev=>parseRgFile(ev.target.result,f.name);r.readAsText(f);e.target.value='';return; }
+  if(type==='cmap'){ const r=new FileReader();r.onload=ev=>parseCmapFile(ev.target.result,f.name);r.readAsText(f);e.target.value='';return; }
+  parseFile(f,type);
+}
 function handleRMSFFiles(e){Array.from(e.target.files).forEach(f=>parseRMSFFile(f));e.target.value='';}
 function handleMultiFiles(e){Array.from(e.target.files).forEach(f=>parseMultiFile(f));e.target.value='';}
 
@@ -4457,6 +4653,326 @@ function captureNGL(){
     const canvas=document.querySelector('#ngl-viewport canvas');
     if(canvas){const a=document.createElement('a');a.href=canvas.toDataURL('image/png',1.0);a.download='ligand_render.png';a.click();}
   });
+}
+
+// ================================================================
+// RADIUS OF GYRATION
+// ================================================================
+// Storage for Rg data (parallel structure to RMSD but multi-column)
+let RG_DATA = null;   // { t:[], cols:[[rg],[rgx],[rgy],[rgz]], labels:[], unitX:'ns', unitY:'Å' }
+let rgChart = null;
+
+function parseRgFile(text, fname){
+  const lines=text.split('\n');
+  let unitX='ns', unitY='Å', convertX=false, convertY=false;
+  const headerCols=[]; // column labels from @ s0 legend etc.
+  for(const l of lines){
+    const lt=l.trim();
+    if(/xaxis.*label.*ps/i.test(lt)) convertX=true;
+    if(/xaxis.*label.*ns/i.test(lt)) convertX=false;
+    if(/yaxis.*label.*nm/i.test(lt)) convertY=true;
+    const leg=/@ s\d+ legend\s+"([^"]+)"/i.exec(lt);
+    if(leg) headerCols.push(leg[1].replace(/\\s\d+/,'').replace(/Å/i,'').trim());
+  }
+  const rows=lines.filter(l=>l.trim()&&!l.startsWith('#')&&!l.startsWith('@'))
+    .map(l=>l.trim().split(/[\s,]+/).map(Number).filter(v=>!isNaN(v)));
+  if(!rows.length||rows[0].length<2){
+    alert('Could not parse Rg file: need at least 2 columns (time, Rg).');return;
+  }
+  const nCols=rows[0].length-1;
+  const t=rows.map(r=>convertX?r[0]/1000:r[0]);
+  const cols=[];
+  const defLabels=['Rg','Rgx','Rgy','Rgz'];
+  for(let c=0;c<nCols;c++){
+    const vals=rows.map(r=>r[c+1]*(convertY?10:1));
+    cols.push(vals);
+  }
+  const labels=[];
+  for(let c=0;c<nCols;c++) labels.push(headerCols[c]||defLabels[c]||`Col${c+1}`);
+  RG_DATA={t, cols, labels, unitX:'ns', unitY:'Å', fname};
+  renderRg();
+}
+
+const RG_COLORS=['#1f77b4','#d62728','#2ca02c','#ff7f0e'];
+function renderRg(){
+  if(!RG_DATA) return;
+  const {t,cols,labels,unitX,unitY}=RG_DATA;
+  const colSel=document.getElementById('rg-col').value;
+  const smooth=parseInt(document.getElementById('rg-smooth').value)||1;
+  const fill=document.getElementById('rg-fill').checked;
+  const pub=document.getElementById('rg-pub').checked;
+  const ctx=document.getElementById('rgChart').getContext('2d');
+  const showCols=colSel==='all'?cols.map((_,i)=>i):[parseInt(colSel)].filter(i=>i<cols.length);
+  const datasets=[];
+  for(const ci of showCols){
+    const raw=cols[ci]; const lbl=labels[ci]; const col=RG_COLORS[ci%RG_COLORS.length];
+    const pts=t.map((x,i)=>({x,y:raw[i]}));
+    const sm=smooth>1?runMean(pts,smooth):pts;
+    if(pub && smooth>1){
+      const bds=bandDatasets(pts,smooth,col,lbl);
+      datasets.push(...bds);
+    } else {
+      datasets.push({label:lbl,data:sm,borderColor:col,backgroundColor:fill?col+'22':'transparent',
+        borderWidth:1.5,pointRadius:0,fill});
+    }
+  }
+  // stats
+  const mainVals=cols[showCols[0]||0];
+  const mean=(mainVals.reduce((a,b)=>a+b,0)/mainVals.length).toFixed(3);
+  const sd=Math.sqrt(mainVals.map(v=>(v-mean)**2).reduce((a,b)=>a+b,0)/mainVals.length).toFixed(3);
+  document.getElementById('rg-stats').innerHTML=`
+    <div class="stat-chip">n = ${t.length}</div>
+    <div class="stat-chip">mean Rg = ${mean} Å</div>
+    <div class="stat-chip">SD = ${sd} Å</div>
+    <div class="stat-chip">min = ${Math.min(...mainVals).toFixed(3)} Å</div>
+    <div class="stat-chip">max = ${Math.max(...mainVals).toFixed(3)} Å</div>`;
+  document.getElementById('rg-chart-title').textContent=`Radius of Gyration — ${RG_DATA.fname}`;
+  if(charts['rg']){ charts['rg'].destroy(); delete charts['rg']; }
+  rgChart=new Chart(ctx,{
+    type:'line',
+    data:{datasets},
+    options:{
+      animation:false, responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:showCols.length>1||pub,
+        labels:{filter:l=>!l.text.startsWith('_'),color:TEXT_CLR,font:{size:11}}},
+        tooltip:{callbacks:{label:d=>`${d.dataset.label}: ${(+d.raw.y).toFixed(3)} Å`}}},
+      scales:{
+        x:{type:'linear',title:{display:true,text:`Time (${unitX})`,color:TEXT_CLR},
+          ticks:{color:TICK_CLR,maxTicksLimit:10},grid:{color:GRID_CLR}},
+        y:{title:{display:true,text:`Rg (${unitY})`,color:TEXT_CLR},
+          ticks:{color:TICK_CLR},grid:{color:GRID_CLR}}
+      }
+    }
+  });
+  charts['rg']=rgChart;
+}
+function runMean(pts,w){
+  const hw=Math.floor(w/2);
+  return pts.map((_,i)=>{
+    const sl=pts.slice(Math.max(0,i-hw),i+hw+1);
+    return {x:pts[i].x,y:sl.reduce((s,p)=>s+p.y,0)/sl.length};
+  });
+}
+
+// ================================================================
+// CONTACT MAP
+// ================================================================
+let cmapData = null;   // { matrix:Float32Array, n:int, labels:[], maxVal, isFreq }
+
+function onCmapSourceChange(){
+  const src=document.getElementById('cmap-source').value;
+  document.getElementById('cmap-from-struct').style.display=src==='structure'?'':'none';
+  document.getElementById('cmap-from-file').style.display=src==='file'?'':'none';
+}
+
+// ---- Color scales ----
+function cmapColorScale(name){
+  // returns a function val(0-1) -> [r,g,b]
+  const scales={
+    blues:  v=>[Math.round(8+v*214),Math.round(81+v*130),Math.round(156+v*90)],
+    reds:   v=>[Math.round(220+v*15),Math.round(Math.max(0,100-v*100)),Math.round(Math.max(0,70-v*70))],
+    greens: v=>[Math.round(10+v*20),Math.round(80+v*140),Math.round(30+v*60)],
+    viridis:v=>{
+      const stops=[[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]];
+      const t=v*(stops.length-1); const i=Math.min(Math.floor(t),stops.length-2); const f=t-i;
+      return stops[i].map((c,k)=>Math.round(c+(stops[i+1][k]-c)*f));
+    },
+    greys:  v=>[Math.round(240-v*210),Math.round(240-v*210),Math.round(240-v*210)]
+  };
+  return scales[name]||scales.blues;
+}
+
+// ---- Compute from NGL structure ----
+function computeContactMap(){
+  if(!nglComponent?.structure){ alert('Load a structure in the Interactions/3D tab first.'); return; }
+  const st=nglComponent.structure;
+  const dtype=document.getElementById('cmap-dtype').value;
+  const cutoff=parseFloat(document.getElementById('cmap-cut').value||8);
+  const chainFilter=document.getElementById('cmap-chain').value.trim().toUpperCase();
+  const info=document.getElementById('cmap-info');
+  info.textContent='Computing…';
+
+  try{
+    // Gather residues and their representative atoms
+    const resMap={};
+    st.eachAtom(a=>{
+      const chain=(a.chainname||'').trim().toUpperCase();
+      if(chainFilter && chain!==chainFilter) return;
+      // skip non-protein
+      const resname=(a.resname||'').toUpperCase();
+      const stdAA=new Set(['ALA','ARG','ASN','ASP','CYS','GLN','GLU','GLY','HIS','HID','HIE','HIP',
+        'ILE','LEU','LYS','MET','PHE','PRO','SER','THR','TRP','TYR','VAL']);
+      if(!stdAA.has(resname)) return;
+      const key=`${a.resno}:${chain}`;
+      if(!resMap[key]) resMap[key]={resno:a.resno,chain,resname,atoms:[],ca:null};
+      const aname=(a.atomname||'').trim().toUpperCase();
+      resMap[key].atoms.push({x:a.x,y:a.y,z:a.z});
+      if(aname==='CA') resMap[key].ca={x:a.x,y:a.y,z:a.z};
+    });
+    const residues=Object.values(resMap).sort((a,b)=>a.resno-b.resno||(a.chain<b.chain?-1:1));
+    const n=residues.length;
+    if(n<2){ info.textContent='⚠ Less than 2 protein residues found. Check chain filter.'; return; }
+    if(n>1000){ info.textContent=`⚠ ${n} residues — may be slow. Consider filtering by chain.`; }
+
+    const labels=residues.map(r=>`${r.resname.substring(0,3)}${r.resno}${r.chain?':'+r.chain:''}`);
+    const matrix=new Float32Array(n*n);
+
+    // Distance computation
+    for(let i=0;i<n;i++){
+      for(let j=i;j<n;j++){
+        if(i===j){ matrix[i*n+j]=0; continue; }
+        let d;
+        if(dtype==='ca'){
+          const ci=residues[i].ca, cj=residues[j].ca;
+          d=(ci&&cj)?Math.hypot(ci.x-cj.x,ci.y-cj.y,ci.z-cj.z):Infinity;
+        } else {
+          // min heavy-atom distance
+          d=Infinity;
+          const ai=residues[i].atoms, aj=residues[j].atoms;
+          for(const a of ai) for(const b of aj){
+            const dd=Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
+            if(dd<d) d=dd;
+          }
+        }
+        const val=Math.min(d,cutoff);
+        matrix[i*n+j]=val; matrix[j*n+i]=val;
+      }
+    }
+    cmapData={matrix,n,labels,maxVal:cutoff,isFreq:false,unitLabel:`Distance (Å)`};
+    info.textContent=`${n} residues · ${dtype==='ca'?'Cα':'min heavy-atom'} distances · cutoff ${cutoff} Å`;
+    drawContactMap(document.getElementById('cmap-color').value);
+  }catch(e){
+    info.textContent=`⚠ Error: ${e.message}`;
+    console.error('computeContactMap:',e);
+  }
+}
+
+// ---- Parse matrix file ----
+function handleCmapFile(event){
+  const f=event.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=e=>parseCmapFile(e.target.result,f.name);
+  r.readAsText(f);
+}
+function parseCmapFile(text, fname){
+  const lines=text.split('\n').filter(l=>l.trim()&&!l.startsWith('#'));
+  if(!lines.length){ alert('Empty file.'); return; }
+  // Check if first row has non-numeric values → header labels
+  const first=lines[0].trim().split(/[\s,;]+/);
+  let labels=null, dataLines=lines;
+  if(isNaN(parseFloat(first[0]))||isNaN(parseFloat(first[1]))){
+    labels=first; dataLines=lines.slice(1);
+  }
+  const rows=dataLines.map(l=>{
+    const parts=l.trim().split(/[\s,;]+/);
+    // first col might be row label
+    const start=(isNaN(parseFloat(parts[0])))?1:0;
+    return parts.slice(start).map(Number).filter(v=>!isNaN(v));
+  }).filter(r=>r.length>0);
+  const n=rows.length;
+  if(!n){ alert('Could not parse matrix.'); return; }
+  if(!labels) labels=rows.map((_,i)=>`R${i+1}`);
+  const matrix=new Float32Array(n*n);
+  let maxVal=0;
+  rows.forEach((row,i)=>row.forEach((v,j)=>{ if(j<n){ matrix[i*n+j]=v; if(v>maxVal) maxVal=v; } }));
+  const invert=document.getElementById('cmap-invert')?.checked;
+  if(invert) for(let k=0;k<matrix.length;k++) matrix[k]=maxVal-matrix[k];
+  cmapData={matrix,n,labels,maxVal,isFreq:maxVal<=1.001,unitLabel:maxVal<=1.001?'Frequency':'Value',fname};
+  document.getElementById('cmap-info').textContent=`${n}×${n} matrix · max value: ${maxVal.toFixed(3)}`;
+  const col=document.getElementById('cmap-color-file').value;
+  drawContactMap(col);
+}
+
+// ---- Render heatmap on Canvas ----
+function drawContactMap(colorName){
+  if(!cmapData) return;
+  const {matrix,n,labels,maxVal}=cmapData;
+  const colorFn=cmapColorScale(colorName);
+  // cell size: aim for ~600px total but cap at 12px per cell
+  const cell=Math.max(2,Math.min(12,Math.floor(560/n)));
+  const labelW=Math.min(60,Math.max(30,labels[0]?.length*6||40));
+  const W=labelW+n*cell+2, H=labelW+n*cell+2;
+  const canvas=document.getElementById('cmapCanvas');
+  canvas.width=W; canvas.height=H;
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  const cx=canvas.getContext('2d');
+  cx.fillStyle='#ffffff'; cx.fillRect(0,0,W,H);
+
+  // Draw cells
+  for(let i=0;i<n;i++){
+    for(let j=0;j<n;j++){
+      const v=matrix[i*n+j]/maxVal;
+      const [r,g,b]=colorFn(Math.min(1,Math.max(0,v)));
+      cx.fillStyle=`rgb(${r},${g},${b})`;
+      cx.fillRect(labelW+j*cell, labelW+i*cell, cell, cell);
+    }
+  }
+
+  // Axis labels (every N residues to avoid clutter)
+  const step=Math.max(1,Math.round(n/30));
+  cx.fillStyle='#444'; cx.font=`${Math.min(10,cell+2)}px Arial`;
+  cx.textAlign='right'; cx.textBaseline='middle';
+  for(let i=0;i<n;i+=step){
+    const y=labelW+i*cell+cell/2;
+    cx.fillText(labels[i],labelW-2,y);
+  }
+  cx.save(); cx.translate(labelW,labelW); cx.rotate(-Math.PI/2);
+  cx.textAlign='left'; cx.textBaseline='middle';
+  for(let j=0;j<n;j+=step){
+    const x=j*cell+cell/2;
+    cx.fillText(labels[j],-labelW+2,x);
+  }
+  cx.restore();
+
+  // Color scale bar
+  const bar=document.getElementById('cmapScaleBar');
+  const bc=bar.getContext('2d');
+  for(let k=0;k<200;k++){
+    const [r,g,b]=colorFn(k/199);
+    bc.fillStyle=`rgb(${r},${g},${b})`;
+    bc.fillRect(k,0,1,14);
+  }
+  document.getElementById('cmap-scale-max').textContent=maxVal.toFixed(cmapData.isFreq?2:1);
+  document.getElementById('cmap-scale-unit').textContent=cmapData.unitLabel||'';
+
+  document.getElementById('cmap-card').style.display='';
+  document.getElementById('cmap-toolbar').style.display='';
+  document.getElementById('cmap-title').textContent=
+    cmapData.isFreq?`Contact Frequency Map (${n} residues)`:`Distance Map (${n} residues, Å)`;
+
+  // Tooltip interaction
+  canvas.onmousemove=ev=>{
+    const rect=canvas.getBoundingClientRect();
+    const mx=ev.clientX-rect.left, my=ev.clientY-rect.top;
+    const j=Math.floor((mx-labelW)/cell), i=Math.floor((my-labelW)/cell);
+    const tip=document.getElementById('cmap-tooltip');
+    if(i>=0&&i<n&&j>=0&&j<n){
+      const val=matrix[i*n+j];
+      tip.style.display='block';
+      tip.style.left=(mx+12)+'px'; tip.style.top=(my-8)+'px';
+      tip.textContent=`${labels[i]} – ${labels[j]}: ${val.toFixed(cmapData.isFreq?3:2)} ${cmapData.isFreq?'':' Å'}`;
+    } else { tip.style.display='none'; }
+  };
+  canvas.onmouseleave=()=>document.getElementById('cmap-tooltip').style.display='none';
+}
+
+// ---- Export ----
+function exportCmapPNG(){
+  if(!cmapData) return;
+  const canvas=document.getElementById('cmapCanvas');
+  const link=document.createElement('a');
+  link.download='contact_map.png';
+  link.href=canvas.toDataURL('image/png');
+  link.click();
+}
+function exportCmapCSV(){
+  if(!cmapData) return;
+  const {matrix,n,labels}=cmapData;
+  let csv=','+labels.join(',')+'\n';
+  for(let i=0;i<n;i++){
+    csv+=labels[i]+','+Array.from({length:n},(_,j)=>matrix[i*n+j].toFixed(3)).join(',')+ '\n';
+  }
+  dlBlob(csv,'text/csv','contact_map.csv');
 }
 
 // ================================================================
