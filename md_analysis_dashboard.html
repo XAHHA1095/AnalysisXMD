@@ -4472,31 +4472,39 @@ function generate2DInteractionMap(){
   // --- Draw connectors + residue bubbles ---
   // Dashed, coloured connector starts at the EDGE of the anchor (a ring centroid
   // for π–π / π–cation, otherwise the atom) and points to the residue bubble.
-  let edges='', ringMarks='', nodes='';
+  // edges: atom connectors (behind the molecule). edgesTop: ring connectors
+  // (π–π / π–cation) that emanate from the ring CENTRE, drawn ON TOP so the line
+  // visibly points to the centroid (like Discovery Studio / PoseView).
+  let edges='', edgesTop='', ringMarks='', nodes='';
   nodesArr.forEach(nd=>{
     const res=nd.res, type=res.type||classifyInteraction(res.resname,res.dist), col=INTX_COLORS[type];
-    // For ring-based interactions, mark the ring centre with a small coloured ring
-    if(nd.isRing){
-      ringMarks+=`<circle cx="${nd.ap[0].toFixed(1)}" cy="${nd.ap[1].toFixed(1)}" r="${(nd.ringR*0.5).toFixed(1)}" fill="none" stroke="${col}" stroke-width="1.6" opacity="0.9"/>`;
-      ringMarks+=`<circle cx="${nd.ap[0].toFixed(1)}" cy="${nd.ap[1].toFixed(1)}" r="1.7" fill="${col}"/>`;
-    }
     if(showLines){
       const ddx=nd.x-nd.ap[0], ddy=nd.y-nd.ap[1], ddl=Math.hypot(ddx,ddy)||1;
       const ux=ddx/ddl, uy=ddy/ddl;
-      // start just past the ring (ringR) or atom ball/label so the line touches but doesn't cover it
-      const anchorEl=G.ligAtoms[res.anchor]?.el||'C';
-      const clear = nd.isRing ? (nd.ringR+3) : ((lblR[res.anchor]||ballR(anchorEl)||4)+2);
-      const gap=Math.min(clear, ddl*0.45);
-      const sx=nd.ap[0]+ux*gap, sy=nd.ap[1]+uy*gap;
-      const ex=nd.x-ux*(nd.rx*0.7), ey=nd.y-uy*(nd.ry*0.7);
-      edges+=`<line x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${col}" stroke-width="1.6" stroke-dasharray="5 4"/>`;
-      if(showEdgeLabel||showDist){
-        const heavyName=G.ligAtoms[res.anchor]?.name||res.ligAtom;
-        const el = showEdgeLabel ? (showDist?`${heavyName} ${res.dist.toFixed(1)}Å`:heavyName) : `${res.dist.toFixed(1)}Å`;
-        const lx=(sx+ex)*0.5, ly=(sy+ey)*0.5, ew=Math.max(26,el.length*5.2);
-        edges+=`<rect x="${(lx-ew/2).toFixed(1)}" y="${(ly-7).toFixed(1)}" width="${ew.toFixed(1)}" height="13" rx="3" fill="#fff" opacity="0.92"/>`;
-        edges+=`<text x="${lx.toFixed(1)}" y="${(ly+2.5).toFixed(1)}" font-size="8.5" fill="#777" text-anchor="middle" font-family="Arial">${el}</text>`;
+      let sx, sy;
+      if(nd.isRing){                                   // start AT the ring centroid
+        sx=nd.ap[0]; sy=nd.ap[1];
+      } else {                                         // start just outside the atom
+        const anchorEl=G.ligAtoms[res.anchor]?.el||'C';
+        const gap=Math.min((lblR[res.anchor]||ballR(anchorEl)||4)+2, ddl*0.45);
+        sx=nd.ap[0]+ux*gap; sy=nd.ap[1]+uy*gap;
       }
+      const ex=nd.x-ux*(nd.rx*0.7), ey=nd.y-uy*(nd.ry*0.7);
+      let s=`<line x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${col}" stroke-width="1.6" stroke-dasharray="5 4"/>`;
+      if(showEdgeLabel||showDist){
+        const heavyName=nd.isRing?'ring':(G.ligAtoms[res.anchor]?.name||res.ligAtom);
+        const el = showEdgeLabel ? (showDist?`${heavyName} ${res.dist.toFixed(1)}Å`:heavyName) : `${res.dist.toFixed(1)}Å`;
+        const lx=sx+(ex-sx)*0.55, ly=sy+(ey-sy)*0.55, ew=Math.max(26,el.length*5.2);
+        s+=`<rect x="${(lx-ew/2).toFixed(1)}" y="${(ly-7).toFixed(1)}" width="${ew.toFixed(1)}" height="13" rx="3" fill="#fff" opacity="0.92"/>`;
+        s+=`<text x="${lx.toFixed(1)}" y="${(ly+2.5).toFixed(1)}" font-size="8.5" fill="#777" text-anchor="middle" font-family="Arial">${el}</text>`;
+      }
+      if(nd.isRing) edgesTop+=s; else edges+=s;
+    }
+    // Ring-centre marker (drawn after edgesTop so the glyph caps the line start)
+    if(nd.isRing){
+      ringMarks+=`<circle cx="${nd.ap[0].toFixed(1)}" cy="${nd.ap[1].toFixed(1)}" r="${(nd.ringR*0.55).toFixed(1)}" fill="#fff" opacity="0.6"/>`;
+      ringMarks+=`<circle cx="${nd.ap[0].toFixed(1)}" cy="${nd.ap[1].toFixed(1)}" r="${(nd.ringR*0.5).toFixed(1)}" fill="none" stroke="${col}" stroke-width="1.8"/>`;
+      ringMarks+=`<circle cx="${nd.ap[0].toFixed(1)}" cy="${nd.ap[1].toFixed(1)}" r="2" fill="${col}"/>`;
     }
     // bubble = soft rounded tag with residue name (top) + number (bottom), colored by interaction
     nodes+=`<g>
@@ -4514,7 +4522,7 @@ function generate2DInteractionMap(){
   // Drawing order: surface → connector lines → bonds → balls → atom labels → residue bubbles
   // Connectors go BEHIND the molecule so they tuck under bonds/atoms; only the
   // heteroatom text labels sit on the atoms (carbons stay unlabelled).
-  intx2dSVG=frameSVG(minX,minY,maxX,maxY,`${surface}${edges}${skel}${balls}${atomLbls}${ringMarks}${nodes}`,G.residues,avgBond);
+  intx2dSVG=frameSVG(minX,minY,maxX,maxY,`${surface}${edges}${skel}${balls}${atomLbls}${edgesTop}${ringMarks}${nodes}`,G.residues,avgBond);
   showIntx2D();
 }
 
