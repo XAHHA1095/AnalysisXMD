@@ -529,7 +529,7 @@ input[type=range].traj-slider{width:180px}
           <label><input type="checkbox" id="ngl-hide-water" checked onchange="buildRepresentations()"> Hide water</label>
         </div>
         <div class="ctrl-group">
-          <label><input type="checkbox" id="ngl-hide-ions" onchange="buildRepresentations()"> Hide ions</label>
+          <label><input type="checkbox" id="ngl-hide-ions" onchange="buildRepresentations()"> Hide ions/metals</label>
         </div>
         <div class="ctrl-group">
           <label><input type="checkbox" id="ngl-hide-hetero" onchange="buildRepresentations()"> Hide other hetero</label>
@@ -2982,6 +2982,21 @@ function buildRepresentations(){
     if(ligMode==='single') ligColorParam=ligColor;
     else if(ligMode==='carbon') ligColorParam=carbonColorScheme(ligColor);
     nglComponent.addRepresentation(ligRepr,{ sele:`(${ligSel})${excl}`, color:ligColorParam, ...common });
+  }
+
+  // 2-ions) METALS / IONS / lone hetero atoms — drawn as spheres so they are visible.
+  //   Monatomic metals (Cu, Zn, Fe, Mg…) are classified as "ion" by NGL and are therefore
+  //   excluded from the ligand selection above, so without this they would not render.
+  const hideIonsRep=document.getElementById('ngl-hide-ions')?.checked;
+  if(!hideIonsRep){
+    // ion keyword + explicit metal/halide elements + any lone hetero atom (no covalent bonds)
+    const metalSel='_CU or _ZN or _FE or _MG or _MN or _CA or _NA or _K or _CO or _NI or _CD or _HG or _MO or _W or _AU or _AG or _PT or _PD or _RU or _CR or _V or _LI or _CL or _BR or _I or _F';
+    nglComponent.addRepresentation('spacefill',{
+      sele:`(ion or ${metalSel}) and not water`,
+      color:'element',
+      radiusScale:0.5,
+      opacity:1.0
+    });
   }
 
   // Compute binding-site residues in JS (NGL selection language has no "within" operator)
