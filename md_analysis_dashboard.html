@@ -586,7 +586,7 @@ input[type=range].traj-slider{width:180px}
       <button class="btn btn-primary" onclick="generate2DInteractionMap()">Generate 2D diagram</button>
       <div class="ctrl-group">
         <span class="ctrl-label">Cutoff (Å):</span>
-        <input type="number" id="intx2d-cut" value="4.5" step="0.5" min="2" max="8" style="width:60px">
+        <input type="number" id="intx2d-cut" value="4.5" step="0.5" min="2" max="8" style="width:60px" onchange="regen2D()">
       </div>
       <button class="btn" id="intx2d-export" onclick="exportIntx2D()" style="display:none">⬇ SVG (vector)</button>
       <div class="ctrl-group" id="intx2d-png-group" style="display:none">
@@ -671,7 +671,7 @@ input[type=range].traj-slider{width:180px}
       <button class="btn btn-primary" onclick="buildInteractionTable()">Generate interaction table</button>
       <div class="ctrl-group">
         <span class="ctrl-label">Cutoff (Å):</span>
-        <input type="number" id="intxtab-cut" value="4.5" step="0.5" min="2" max="8" style="width:60px">
+        <input type="number" id="intxtab-cut" value="4.5" step="0.5" min="2" max="8" style="width:60px" onchange="interactionTableData.length&&buildInteractionTable()">
       </div>
       <button class="btn" id="intxtab-export" onclick="exportInteractionTableCSV()" style="display:none">⬇ Export CSV</button>
       <span class="ctrl-label" id="intxtab-info" style="color:var(--text3)"></span>
@@ -3797,7 +3797,11 @@ function detectInteractions(ligSel, cutoff, opts){
   const planeAng=(n1,n2)=>Math.acos(Math.max(-1,Math.min(1,Math.abs(n1[0]*n2[0]+n1[1]*n2[1]+n1[2]*n2[2]))))*180/Math.PI;
 
   // ---- gather protein atoms near the ligand (incl. hydrogens) ----
-  const RR=cutoff+3.0, RR2=RR*RR, prot=[];
+  // Always use a FIXED generous range (8 Å) so that the detected interaction
+  // set is stable — charged groups, ring centroids and acceptors are computed
+  // from a consistent atom pool.  The user's cutoff is applied as a DISPLAY
+  // filter at the end, so increasing it can only ADD contacts, never remove them.
+  const RR=Math.max(cutoff+2.0, 8.0), RR2=RR*RR, prot=[];
   st.eachAtom(a=>{
     let near=false;
     for(const h of ligHeavy){const dx=a.x-lig[h].x,dy=a.y-lig[h].y,dz=a.z-lig[h].z;if(dx*dx+dy*dy+dz*dz<=RR2){near=true;break;}}
@@ -3924,7 +3928,27 @@ function detectInteractions(ligSel, cutoff, opts){
     }
     return {...r, type:'vdw', interactions:[]};
   });
-  return {...G, residues, interactions};
+
+  // Apply user cutoff as display filter:
+  //   - Specific interactions (H-bond, salt bridge…): always shown if they pass
+  //     their geometric criterion, provided dist ≤ max(cutoff, threshold).
+  //     This means quality interactions are never hidden by a tight cutoff.
+  //   - VdW contacts: capped at cutoff (user-controlled breadth).
+  const INTX_THRESH={hbond:3.5,saltbridge:4.5,pistacking:5.5,pication:6.0,halogen:3.8,hydrophobic:4.0};
+  const visibleInteractions=interactions.filter(i=>{
+    const thr=INTX_THRESH[i.type]||cutoff;
+    return i.dist<=Math.max(cutoff,thr);   // never hide a geometrically valid interaction
+  });
+  // VdW contacts from residues not reached by specific interactions
+  const specRes=new Set(visibleInteractions.map(i=>i.resno+':'+i.chain));
+  G.residues.forEach(r=>{
+    const k=r.resno+':'+r.chain;
+    if(!specRes.has(k) && r.dist<=cutoff)
+      visibleInteractions.push({type:'vdw',resname:r.resname,resno:r.resno,chain:r.chain,
+        ligLocal:r.ligLocal,ligAtom:r.ligAtom,protAtom:r.protAtom,dist:r.dist,angle:null,note:'contact'});
+  });
+
+  return {...G, residues, interactions:visibleInteractions};
 }
 
 function generate2DInteractionMap(){
