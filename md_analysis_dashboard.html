@@ -3692,7 +3692,9 @@ function _buildInteractionTableInner(ligSel,cutoff,info){
     </tr>`).join('');
 
   const nSpec=(G&&G.interactions)?G.interactions.length:0;
-  info.textContent=`${list.length} interaction(s) within ${cutoff} Å`+(nSpec?'':' · van der Waals contacts only');
+  const hMode = G&&G.hasHydrogens ? 'H present (angle geometry)' : 'no H (distance-based H-bonds)';
+  info.innerHTML=`${list.length} interaction(s) within ${cutoff} Å`+(nSpec?'':' · van der Waals contacts only')+
+    ` · <span style="color:${G&&G.hasHydrogens?'var(--green)':'var(--amber)'}">⬡ ${hMode}</span>`;
   info.style.color='var(--text3)';
   document.getElementById('intxtab-wrap').style.display='block';
   document.getElementById('intxtab-export').style.display='inline-flex';
@@ -4012,23 +4014,37 @@ function detectInteractions(ligSel, cutoff, opts){
   const protHsOf=pa=>{const o=[];for(const q of prot){if(q.isH&&d3(pa,q)<1.3)o.push(q);}return o;};
   const dLL=(i,j)=>d3(lig[i],lig[j]);
 
+  // Does the structure carry explicit hydrogens?  This decides whether H-bonds
+  // are evaluated with the full D–H···A angle (preferred) or by a distance-only
+  // criterion.  Reported back so the UI can tell the user which mode is in use.
+  const hasHydrogens = lig.some(a=>a.isH) || prot.some(a=>a.isH);
+
   const interactions=[];
   const ACC=new Set(['N','O','S']);
+  const HB_DIST=3.5, HB_ANGLE=130;   // ProLIF-style defaults: D–A ≤ 3.5 Å, D–H···A ≥ 130°
 
-  // 1) HYDROGEN BONDS — D···A ≤ 3.5 Å and D–H···A ≥ 130°
+  // 1) HYDROGEN BONDS
+  //    Per-pair logic (robust to partially-hydrogenated structures):
+  //      • if a donor H is present on either heavy atom → require D–A ≤ 3.5 Å
+  //        AND best D–H···A angle ≥ 130°  (geom:'angle')
+  //      • if neither heavy atom carries an explicit H → D–A ≤ 3.5 Å only
+  //        (geom:'distance'; angle cannot be measured without hydrogens)
   for(const li of ligHeavy){
     if(!ACC.has(lig[li].el)) continue;
     for(const pa of prot){
       if(pa.isH||!ACC.has(pa.el)) continue;
-      const d=d3(lig[li],pa); if(d>3.5) continue;
+      const d=d3(lig[li],pa); if(d>HB_DIST) continue;
       const lHs=ligHsOf(li), pHs=protHsOf(pa);
       let best=-1, side='';
-      for(const h of lHs){const ang=angAt(lig[li],h,pa); if(ang>best){best=ang;side='ligand';}}
-      for(const h of pHs){const ang=angAt(pa,h,lig[li]); if(ang>best){best=ang;side='protein';}}
-      const noH=(lHs.length===0&&pHs.length===0);
-      if(best>=130 || (noH&&d<=3.3))
+      for(const h of lHs){const a=angAt(lig[li],h,pa); if(a>best){best=a;side='lig→prot';}}   // ligand is donor
+      for(const h of pHs){const a=angAt(pa,h,lig[li]); if(a>best){best=a;side='prot→lig';}}   // protein is donor
+      const localH=(lHs.length>0||pHs.length>0);
+      let accept=false, geom='distance', ang=null;
+      if(localH){ if(best>=HB_ANGLE){ accept=true; geom='angle'; ang=best; } }   // H present → angle gate
+      else { accept=true; geom='distance'; }                                      // no local H → distance only
+      if(accept)
         interactions.push({type:'hbond',resname:pa.resname,resno:pa.resno,chain:pa.chain,
-          ligLocal:li,ligAtom:lig[li].name,protAtom:pa.name,dist:d,angle:best>=0?best:null,note:side});
+          ligLocal:li,ligAtom:lig[li].name,protAtom:pa.name,dist:d,angle:ang,geom,note:side||geom});
     }
   }
 
@@ -4078,19 +4094,33 @@ function detectInteractions(ligSel, cutoff, opts){
   protAni.forEach(pa=>ligCat.forEach(lc=>{const d=d3(pa.c,lig[lc.local]);
     if(d<=4.5) interactions.push({type:'saltbridge',resname:pa.res.resname,resno:pa.res.resno,chain:pa.res.chain,ligLocal:lc.local,ligAtom:lig[lc.local].name,protAtom:pa.atom,dist:d,angle:null,note:'−/+'});}));
 
-  // 3) π–π STACKING — centroid ≤ 5.5 Å, planes parallel (<30°) or T-shaped (>50°)
+  // Lateral offset of a point from a ring's central axis (perpendicular distance
+  // from the ring normal through its centroid). Small offset ⇒ over the ring face.
+  const ringOffset=(p,ring)=>{
+    const vx=p[0]-ring.c[0], vy=p[1]-ring.c[1], vz=p[2]-ring.c[2];
+    const along=vx*ring.n[0]+vy*ring.n[1]+vz*ring.n[2];
+    return Math.sqrt(Math.max(0, vx*vx+vy*vy+vz*vz - along*along));
+  };
+
+  // 3) π–π STACKING — centroid ≤ 5.5 Å.  Parallel: plane angle ≤ 30° AND lateral
+  //    offset ≤ 3.0 Å (face-to-face / parallel-displaced).  T-shaped: angle ≥ 50°
+  //    (edge-to-face).  Offset guards against coplanar-but-displaced false hits.
   protRings.forEach(pr=>ligRings.forEach(lr=>{
     const cd=d3(pr.c,lr.c); if(cd>5.5) return;
     const ang=planeAng(pr.n,lr.n);
-    if(ang<=30||ang>=50) interactions.push({type:'pistacking',resname:pr.res.resname,resno:pr.res.resno,chain:pr.res.chain,
-      ligLocal:nearestRingAtom(lr,pr.c),ligAtom:'ring',protAtom:'ring',dist:cd,angle:ang,note:ang<=30?'parallel':'T-shaped'});
+    const off=ringOffset(lr.c,pr);
+    const parallel = ang<=30 && off<=3.0;
+    const tshaped  = ang>=50;
+    if(parallel||tshaped) interactions.push({type:'pistacking',resname:pr.res.resname,resno:pr.res.resno,chain:pr.res.chain,
+      ligLocal:nearestRingAtom(lr,pr.c),ligAtom:'ring',protAtom:'ring',dist:cd,angle:ang,note:parallel?'parallel':'T-shaped'});
   }));
 
-  // 4) π–CATION — cation ≤ 6 Å from an aromatic ring centroid
+  // 4) π–CATION — cation ≤ 6 Å from a ring centroid AND positioned over the
+  //    aromatic face (lateral offset ≤ 2.0 Å), not in the ring plane.
   protCat.forEach(pc=>ligRings.forEach(lr=>{const d=d3(pc.c,lr.c);
-    if(d<=6.0) interactions.push({type:'pication',resname:pc.res.resname,resno:pc.res.resno,chain:pc.res.chain,ligLocal:nearestRingAtom(lr,pc.c),ligAtom:'ring',protAtom:pc.atom,dist:d,angle:null,note:'prot cation'});}));
-  ligCat.forEach(lc=>protRings.forEach(pr=>{const d=d3(lig[lc.local],pr.c);
-    if(d<=6.0) interactions.push({type:'pication',resname:pr.res.resname,resno:pr.res.resno,chain:pr.res.chain,ligLocal:lc.local,ligAtom:lig[lc.local].name,protAtom:'ring',dist:d,angle:null,note:'lig cation'});}));
+    if(d<=6.0 && ringOffset(pc.c,lr)<=2.0) interactions.push({type:'pication',resname:pc.res.resname,resno:pc.res.resno,chain:pc.res.chain,ligLocal:nearestRingAtom(lr,pc.c),ligAtom:'ring',protAtom:pc.atom,dist:d,angle:null,note:'prot cation'});}));
+  ligCat.forEach(lc=>protRings.forEach(pr=>{const cp=[lig[lc.local].x,lig[lc.local].y,lig[lc.local].z]; const d=d3(cp,pr.c);
+    if(d<=6.0 && ringOffset(cp,pr)<=2.0) interactions.push({type:'pication',resname:pr.res.resname,resno:pr.res.resno,chain:pr.res.chain,ligLocal:lc.local,ligAtom:lig[lc.local].name,protAtom:'ring',dist:d,angle:null,note:'lig cation'});}));
 
   // 5) HALOGEN BONDS — C–X···A ≤ 3.8 Å and C–X···A ≥ 140°
   for(const xi of ligHeavy){ if(!['CL','BR','I'].includes(lig[xi].el)) continue;
@@ -4144,7 +4174,7 @@ function detectInteractions(ligSel, cutoff, opts){
         ligLocal:r.ligLocal,ligAtom:r.ligAtom,protAtom:r.protAtom,dist:r.dist,angle:null,note:'contact'});
   });
 
-  return {...G, residues, interactions:visibleInteractions};
+  return {...G, residues, interactions:visibleInteractions, hasHydrogens};
 }
 
 function generate2DInteractionMap(){
@@ -4186,7 +4216,8 @@ function generate2DInteractionMap(){
     const ocl=oclDepictionCoords(G);
     if(ocl){ proj2d=ocl; layoutName='2D depiction'; }
   }
-  info.textContent=`${G.residues.length} interacting residue(s) within ${cutoff} Å · ${layoutName}`;
+  const hbMode = G.hasHydrogens ? 'H present → D–H···A angle geometry' : 'no H → H-bonds by distance (add hydrogens for angle geometry)';
+  info.innerHTML=`${G.residues.length} interacting residue(s) within ${cutoff} Å · ${layoutName}<br><span style="color:${G.hasHydrogens?'var(--green)':'var(--amber)'}">⬡ ${hbMode}</span>`;
   info.style.color='var(--text3)';
 
   // Atoms that participate in an interaction (force-label them so they're identifiable)
