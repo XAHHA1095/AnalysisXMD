@@ -577,6 +577,53 @@ input[type=range].traj-slider{width:180px}
     </div>
   </div>
 
+  <!-- INTERACTION DETECTION CRITERIA (advanced, adjustable, transparent) -->
+  <details class="intx2d-card" id="intx-criteria-panel">
+    <summary style="cursor:pointer;font-weight:600;font-size:14px;color:var(--text)">⚙ Interaction detection criteria (advanced) — PLIP/ProLIF defaults</summary>
+    <p class="repframe-desc" style="margin-top:10px">
+      Geometric thresholds applied to <b>every</b> protein–ligand interaction (both the summary table and the 2D diagram).
+      Defaults follow <b>PLIP</b> (Salentin et al., 2015) and <b>ProLIF</b> (Bouysset &amp; Fiorucci, 2021).
+      Adjust to tighten/loosen detection or to reproduce another tool — fully transparent and reproducible.
+    </p>
+    <div style="display:flex;flex-wrap:wrap;gap:14px">
+      <fieldset style="border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:6px 12px 10px">
+        <legend style="font-size:11px;color:#2ecc71;padding:0 4px">Hydrogen bond</legend>
+        <label style="font-size:11px;display:block;margin:3px 0">D–A max (Å) <input type="number" id="crit-hb-dist" value="3.5" step="0.1" style="width:56px"></label>
+        <label style="font-size:11px;display:block;margin:3px 0">D–H···A min (°) <input type="number" id="crit-hb-angle" value="120" step="5" style="width:56px"></label>
+      </fieldset>
+      <fieldset style="border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:6px 12px 10px">
+        <legend style="font-size:11px;color:#ff8c00;padding:0 4px">Salt bridge</legend>
+        <label style="font-size:11px;display:block;margin:3px 0">centre dist max (Å) <input type="number" id="crit-sb-dist" value="4.5" step="0.1" style="width:56px"></label>
+      </fieldset>
+      <fieldset style="border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:6px 12px 10px">
+        <legend style="font-size:11px;color:#d62fa0;padding:0 4px">π–π stacking</legend>
+        <label style="font-size:11px;display:block;margin:3px 0">centroid max (Å) <input type="number" id="crit-pp-dist" value="5.5" step="0.1" style="width:56px"></label>
+        <label style="font-size:11px;display:block;margin:3px 0">parallel ≤ (°) <input type="number" id="crit-pp-angpar" value="30" step="5" style="width:56px"></label>
+        <label style="font-size:11px;display:block;margin:3px 0">offset max (Å) <input type="number" id="crit-pp-offset" value="2.0" step="0.1" style="width:56px"></label>
+        <label style="font-size:11px;display:block;margin:3px 0">T-shaped ≥ (°) <input type="number" id="crit-pp-angt" value="50" step="5" style="width:56px"></label>
+      </fieldset>
+      <fieldset style="border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:6px 12px 10px">
+        <legend style="font-size:11px;color:#8e44ad;padding:0 4px">π–cation</legend>
+        <label style="font-size:11px;display:block;margin:3px 0">dist max (Å) <input type="number" id="crit-pc-dist" value="6.0" step="0.1" style="width:56px"></label>
+        <label style="font-size:11px;display:block;margin:3px 0">offset max (Å) <input type="number" id="crit-pc-offset" value="2.0" step="0.1" style="width:56px"></label>
+      </fieldset>
+      <fieldset style="border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:6px 12px 10px">
+        <legend style="font-size:11px;color:#00b3b3;padding:0 4px">Halogen bond</legend>
+        <label style="font-size:11px;display:block;margin:3px 0">X···A max (Å) <input type="number" id="crit-hal-dist" value="4.0" step="0.1" style="width:56px"></label>
+        <label style="font-size:11px;display:block;margin:3px 0">C–X···A min (°) <input type="number" id="crit-hal-angle" value="140" step="5" style="width:56px"></label>
+      </fieldset>
+      <fieldset style="border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:6px 12px 10px">
+        <legend style="font-size:11px;color:#e377c2;padding:0 4px">Hydrophobic</legend>
+        <label style="font-size:11px;display:block;margin:3px 0">C···C max (Å) <input type="number" id="crit-hphob-dist" value="4.0" step="0.1" style="width:56px"></label>
+      </fieldset>
+    </div>
+    <div class="controls-row" style="margin-top:12px">
+      <button class="btn btn-primary" onclick="applyDetectionCriteria()">Apply criteria</button>
+      <button class="btn" onclick="resetDetectionCriteria()">Reset to PLIP/ProLIF defaults</button>
+      <span class="ctrl-label" style="color:var(--text3)">Changing values re-runs both the table and the 2D diagram.</span>
+    </div>
+  </details>
+
   <!-- 2D INTERACTION DIAGRAM (Discovery Studio style) -->
   <div class="intx2d-card">
     <h4>🗺 2D Ligand–Protein Interaction Diagram</h4>
@@ -3973,9 +4020,26 @@ const II_NEG_TMPL={ASP:['OD1','OD2'], GLU:['OE1','OE2']};
 const II_HPHOB_RES=new Set(['ALA','VAL','LEU','ILE','MET','PHE','TRP','PRO','CYS','TYR']);
 const II_PRIORITY=['saltbridge','hbond','pistacking','pication','halogen','hydrophobic'];
 
+// Adjustable geometric thresholds (PLIP/ProLIF defaults). Read from the
+// "Detection criteria" panel; fall back to defaults when the panel is absent.
+const CRIT_DEFAULTS={'crit-hb-dist':3.5,'crit-hb-angle':120,'crit-sb-dist':4.5,
+  'crit-pp-dist':5.5,'crit-pp-angpar':30,'crit-pp-offset':2.0,'crit-pp-angt':50,
+  'crit-pc-dist':6.0,'crit-pc-offset':2.0,'crit-hal-dist':4.0,'crit-hal-angle':140,
+  'crit-hphob-dist':4.0};
+function getDetectionCriteria(){
+  const g=id=>{const e=document.getElementById(id);const x=e?parseFloat(e.value):NaN;return isFinite(x)?x:CRIT_DEFAULTS[id];};
+  return {hbDist:g('crit-hb-dist'),hbAngle:g('crit-hb-angle'),sbDist:g('crit-sb-dist'),
+    ppDist:g('crit-pp-dist'),ppAngPar:g('crit-pp-angpar'),ppOffset:g('crit-pp-offset'),ppAngT:g('crit-pp-angt'),
+    pcDist:g('crit-pc-dist'),pcOffset:g('crit-pc-offset'),halDist:g('crit-hal-dist'),halAngle:g('crit-hal-angle'),
+    hphobDist:g('crit-hphob-dist')};
+}
+function applyDetectionCriteria(){ if(typeof regen2D==='function') regen2D(); if(typeof interactionTableData!=='undefined' && interactionTableData.length) buildInteractionTable(); }
+function resetDetectionCriteria(){ Object.entries(CRIT_DEFAULTS).forEach(([id,v])=>{const e=document.getElementById(id);if(e)e.value=v;}); applyDetectionCriteria(); }
+
 function detectInteractions(ligSel, cutoff, opts){
   const G=getLigandGraphAndContacts(ligSel, cutoff, opts);
   if(!G) return null;
+  const crit=getDetectionCriteria();
   const st=nglComponent.structure;
   const lig=G.ligAtoms, ligHeavy=G.heavyLocal;
   const adj={}; G.bonds.forEach(([i,j])=>{(adj[i]=adj[i]||[]).push(j);(adj[j]=adj[j]||[]).push(i);});
@@ -4021,7 +4085,7 @@ function detectInteractions(ligSel, cutoff, opts){
 
   const interactions=[];
   const ACC=new Set(['N','O','S']);
-  const HB_DIST=3.5, HB_ANGLE=130;   // ProLIF-style defaults: D–A ≤ 3.5 Å, D–H···A ≥ 130°
+  const HB_DIST=crit.hbDist, HB_ANGLE=crit.hbAngle;   // adjustable (default D–A ≤ 3.5 Å, D–H···A ≥ 120°)
 
   // 1) HYDROGEN BONDS
   //    Per-pair logic (robust to partially-hydrogenated structures):
@@ -4088,11 +4152,11 @@ function detectInteractions(ligSel, cutoff, opts){
     if(guan || (!amide && nbH.length>0 && nbH.every(c=>lig[c].el==='C'))) ligCat.push({local:ni});
   }
 
-  // 2) SALT BRIDGES — charged centres ≤ 4.5 Å
+  // 2) SALT BRIDGES — charged centres ≤ crit.sbDist
   protCat.forEach(pc=>ligAni.forEach(la=>{const d=d3(pc.c,lig[la.local]);
-    if(d<=4.5) interactions.push({type:'saltbridge',resname:pc.res.resname,resno:pc.res.resno,chain:pc.res.chain,ligLocal:la.local,ligAtom:lig[la.local].name,protAtom:pc.atom,dist:d,angle:null,note:'+/−'});}));
+    if(d<=crit.sbDist) interactions.push({type:'saltbridge',resname:pc.res.resname,resno:pc.res.resno,chain:pc.res.chain,ligLocal:la.local,ligAtom:lig[la.local].name,protAtom:pc.atom,dist:d,angle:null,note:'+/−'});}));
   protAni.forEach(pa=>ligCat.forEach(lc=>{const d=d3(pa.c,lig[lc.local]);
-    if(d<=4.5) interactions.push({type:'saltbridge',resname:pa.res.resname,resno:pa.res.resno,chain:pa.res.chain,ligLocal:lc.local,ligAtom:lig[lc.local].name,protAtom:pa.atom,dist:d,angle:null,note:'−/+'});}));
+    if(d<=crit.sbDist) interactions.push({type:'saltbridge',resname:pa.res.resname,resno:pa.res.resno,chain:pa.res.chain,ligLocal:lc.local,ligAtom:lig[lc.local].name,protAtom:pa.atom,dist:d,angle:null,note:'−/+'});}));
 
   // Lateral offset of a point from a ring's central axis (perpendicular distance
   // from the ring normal through its centroid). Small offset ⇒ over the ring face.
@@ -4102,41 +4166,41 @@ function detectInteractions(ligSel, cutoff, opts){
     return Math.sqrt(Math.max(0, vx*vx+vy*vy+vz*vz - along*along));
   };
 
-  // 3) π–π STACKING — centroid ≤ 5.5 Å.  Parallel: plane angle ≤ 30° AND lateral
-  //    offset ≤ 3.0 Å (face-to-face / parallel-displaced).  T-shaped: angle ≥ 50°
-  //    (edge-to-face).  Offset guards against coplanar-but-displaced false hits.
+  // 3) π–π STACKING — centroid ≤ crit.ppDist.  Parallel: plane angle ≤ ppAngPar
+  //    AND lateral offset ≤ ppOffset (face-to-face / parallel-displaced).
+  //    T-shaped: angle ≥ ppAngT (edge-to-face). Offset guards coplanar-displaced.
   protRings.forEach(pr=>ligRings.forEach(lr=>{
-    const cd=d3(pr.c,lr.c); if(cd>5.5) return;
+    const cd=d3(pr.c,lr.c); if(cd>crit.ppDist) return;
     const ang=planeAng(pr.n,lr.n);
     const off=ringOffset(lr.c,pr);
-    const parallel = ang<=30 && off<=3.0;
-    const tshaped  = ang>=50;
+    const parallel = ang<=crit.ppAngPar && off<=crit.ppOffset;
+    const tshaped  = ang>=crit.ppAngT;
     if(parallel||tshaped) interactions.push({type:'pistacking',resname:pr.res.resname,resno:pr.res.resno,chain:pr.res.chain,
       ligLocal:nearestRingAtom(lr,pr.c),ligAtom:'ring',protAtom:'ring',dist:cd,angle:ang,note:parallel?'parallel':'T-shaped'});
   }));
 
-  // 4) π–CATION — cation ≤ 6 Å from a ring centroid AND positioned over the
-  //    aromatic face (lateral offset ≤ 2.0 Å), not in the ring plane.
+  // 4) π–CATION — cation ≤ crit.pcDist from a ring centroid AND positioned over
+  //    the aromatic face (lateral offset ≤ crit.pcOffset), not in the ring plane.
   protCat.forEach(pc=>ligRings.forEach(lr=>{const d=d3(pc.c,lr.c);
-    if(d<=6.0 && ringOffset(pc.c,lr)<=2.0) interactions.push({type:'pication',resname:pc.res.resname,resno:pc.res.resno,chain:pc.res.chain,ligLocal:nearestRingAtom(lr,pc.c),ligAtom:'ring',protAtom:pc.atom,dist:d,angle:null,note:'prot cation'});}));
+    if(d<=crit.pcDist && ringOffset(pc.c,lr)<=crit.pcOffset) interactions.push({type:'pication',resname:pc.res.resname,resno:pc.res.resno,chain:pc.res.chain,ligLocal:nearestRingAtom(lr,pc.c),ligAtom:'ring',protAtom:pc.atom,dist:d,angle:null,note:'prot cation'});}));
   ligCat.forEach(lc=>protRings.forEach(pr=>{const cp=[lig[lc.local].x,lig[lc.local].y,lig[lc.local].z]; const d=d3(cp,pr.c);
-    if(d<=6.0 && ringOffset(cp,pr)<=2.0) interactions.push({type:'pication',resname:pr.res.resname,resno:pr.res.resno,chain:pr.res.chain,ligLocal:lc.local,ligAtom:lig[lc.local].name,protAtom:'ring',dist:d,angle:null,note:'lig cation'});}));
+    if(d<=crit.pcDist && ringOffset(cp,pr)<=crit.pcOffset) interactions.push({type:'pication',resname:pr.res.resname,resno:pr.res.resno,chain:pr.res.chain,ligLocal:lc.local,ligAtom:lig[lc.local].name,protAtom:'ring',dist:d,angle:null,note:'lig cation'});}));
 
-  // 5) HALOGEN BONDS — C–X···A ≤ 3.8 Å and C–X···A ≥ 140°
+  // 5) HALOGEN BONDS — C–X···A ≤ crit.halDist and C–X···A ≥ crit.halAngle
   for(const xi of ligHeavy){ if(!['CL','BR','I'].includes(lig[xi].el)) continue;
     const cN=(adj[xi]||[]).find(n=>lig[n].el==='C'); if(cN===undefined) continue;
     for(const pa of prot){ if(pa.isH||!['O','N'].includes(pa.el)) continue;
-      const d=d3(lig[xi],pa); if(d>3.8) continue;
+      const d=d3(lig[xi],pa); if(d>crit.halDist) continue;
       const ang=angAt(lig[cN],lig[xi],pa);
-      if(ang>=140) interactions.push({type:'halogen',resname:pa.resname,resno:pa.resno,chain:pa.chain,ligLocal:xi,ligAtom:lig[xi].name,protAtom:pa.name,dist:d,angle:ang,note:'C–X···A'});
+      if(ang>=crit.halAngle) interactions.push({type:'halogen',resname:pa.resname,resno:pa.resno,chain:pa.chain,ligLocal:xi,ligAtom:lig[xi].name,protAtom:pa.name,dist:d,angle:ang,note:'C–X···A'});
     }
   }
 
-  // 6) HYDROPHOBIC CONTACTS — C···C ≤ 4.0 Å (one per residue, closest)
+  // 6) HYDROPHOBIC CONTACTS — C···C ≤ crit.hphobDist (one per residue, closest)
   const hyd={};
   for(const ci of ligHeavy){ if(lig[ci].el!=='C') continue;
     for(const pa of prot){ if(pa.isH||pa.el!=='C'||pa.name==='C'||!II_HPHOB_RES.has(pa.resname)) continue;
-      const d=d3(lig[ci],pa); if(d>4.0) continue;
+      const d=d3(lig[ci],pa); if(d>crit.hphobDist) continue;
       const k=pa.resno+':'+pa.chain;
       if(!hyd[k]||d<hyd[k].dist) hyd[k]={type:'hydrophobic',resname:pa.resname,resno:pa.resno,chain:pa.chain,ligLocal:ci,ligAtom:lig[ci].name,protAtom:pa.name,dist:d,angle:null,note:''};
     }
@@ -4160,7 +4224,7 @@ function detectInteractions(ligSel, cutoff, opts){
   //     their geometric criterion, provided dist ≤ max(cutoff, threshold).
   //     This means quality interactions are never hidden by a tight cutoff.
   //   - VdW contacts: capped at cutoff (user-controlled breadth).
-  const INTX_THRESH={hbond:3.5,saltbridge:4.5,pistacking:5.5,pication:6.0,halogen:3.8,hydrophobic:4.0};
+  const INTX_THRESH={hbond:crit.hbDist,saltbridge:crit.sbDist,pistacking:crit.ppDist,pication:crit.pcDist,halogen:crit.halDist,hydrophobic:crit.hphobDist};
   const visibleInteractions=interactions.filter(i=>{
     const thr=INTX_THRESH[i.type]||cutoff;
     return i.dist<=Math.max(cutoff,thr);   // never hide a geometrically valid interaction
