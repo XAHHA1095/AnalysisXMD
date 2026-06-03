@@ -3441,6 +3441,15 @@ function buildInteractionTable(){
   const ligSel=normalizeLigSel(document.getElementById('ngl-lig-sel').value);
   const cutoff=parseFloat(document.getElementById('intxtab-cut').value||4.5);
   const info=document.getElementById('intxtab-info');
+  info.textContent='Computing…'; info.style.color='var(--text3)';
+  try{ _buildInteractionTableInner(ligSel,cutoff,info); }
+  catch(e){
+    info.textContent=`⚠ Error: ${e.message} — check ligand selection.`;
+    info.style.color='var(--amber)';
+    console.error('buildInteractionTable:',e);
+  }
+}
+function _buildInteractionTableInner(ligSel,cutoff,info){
 
   // Geometric detection (PLIP/ProLIF-style): one row per detected interaction
   const G=detectInteractions(ligSel, cutoff, {polarH:false});
@@ -3982,8 +3991,19 @@ function generate2DInteractionMap(){
   const bw=Math.max(1.6, avgBond*0.10);          // bond stroke width
   const dblOff=Math.max(2, avgBond*0.13);        // double-bond offset
   const ballR=el=>(el==='H'?avgBond*0.13:el==='C'?avgBond*0.17:avgBond*0.21);
-  const hetFs=Math.max(11, avgBond*0.58);        // heteroatom label font
-  const cFs=Math.max(9, avgBond*0.42);           // carbon/H label font
+  // Font sizes: proportional but hard-capped so they never dwarf the structure
+  const hetFs=Math.min(Math.max(8, avgBond*0.28), 14);  // 8–14 px
+  const cFs =Math.min(Math.max(7, avgBond*0.20), 11);   // 7–11 px
+
+  // Pre-compute per-atom label radius used later for bond clipping + label bg
+  const lblR={};
+  G.drawLocal.forEach(ll=>{
+    const at=G.ligAtoms[ll]; let fs=null, llen=1;
+    if(at.el==='H'&&showPolarH){ fs=cFs; llen=1; }
+    else if(at.el==='C'&&showCarbon){ fs=cFs; llen=at.name.length; }
+    else if(at.el!=='H'&&at.el!=='C'){ fs=hetFs; llen=at.el.length; }
+    if(fs!==null) lblR[ll]=Math.max(fs*0.56, llen*fs*0.32);
+  });
 
   // --- Perceive aromatic rings + double bonds from 3D geometry ---
   const dist3D=(i,j)=>Math.hypot(G.ligAtoms[i].x-G.ligAtoms[j].x, G.ligAtoms[i].y-G.ligAtoms[j].y, G.ligAtoms[i].z-G.ligAtoms[j].z);
@@ -4000,18 +4020,25 @@ function generate2DInteractionMap(){
     }
   });
 
-  // --- Ligand skeleton (bonds among drawn atoms) ---
+  // --- Ligand skeleton (bonds among drawn atoms, clipped at atom labels) ---
   let skel='';
   G.bonds.forEach(([i,j,order])=>{
     if(!(drawSet.has(i)&&drawSet.has(j))) return;
-    const a=scr[i], b=scr[j];
-    if(!a||!b) return;
+    const ai=scr[i], bj=scr[j];
+    if(!ai||!bj) return;
     const key=i<j?`${i}-${j}`:`${j}-${i}`;
     const ord = aromBond.has(key) ? 1 : Math.max(order||1, perceiveOrder(G.ligAtoms[i].el,G.ligAtoms[j].el,dist3D(i,j)));
+    // Clip bond ends at atom label boundaries so lines don't cut through labels
+    const dx=bj[0]-ai[0], dy=bj[1]-ai[1], L=Math.hypot(dx,dy)||1;
+    const ux=dx/L, uy=dy/L;
+    const r0=lblR[i]||0, r1=lblR[j]||0;
+    if(L<=r0+r1+1) return;                      // labels overlap → skip bond
+    const a=[ai[0]+ux*r0, ai[1]+uy*r0];         // start after label i
+    const b=[bj[0]-ux*r1, bj[1]-uy*r1];         // end before label j
     if(ord>=2){
-      const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1,ox=-dy/L*dblOff,oy=dx/L*dblOff;
-      skel+=`<line x1="${(a[0]+ox).toFixed(1)}" y1="${(a[1]+oy).toFixed(1)}" x2="${(b[0]+ox).toFixed(1)}" y2="${(b[1]+oy).toFixed(1)}" stroke="${bondCol}" stroke-width="${(bw*0.9).toFixed(1)}"/>`;
-      skel+=`<line x1="${(a[0]-ox).toFixed(1)}" y1="${(a[1]-oy).toFixed(1)}" x2="${(b[0]-ox).toFixed(1)}" y2="${(b[1]-oy).toFixed(1)}" stroke="${bondCol}" stroke-width="${(bw*0.9).toFixed(1)}"/>`;
+      const ox=-uy*dblOff, oy2=ux*dblOff;
+      skel+=`<line x1="${(a[0]+ox).toFixed(1)}" y1="${(a[1]+oy2).toFixed(1)}" x2="${(b[0]+ox).toFixed(1)}" y2="${(b[1]+oy2).toFixed(1)}" stroke="${bondCol}" stroke-width="${(bw*0.9).toFixed(1)}"/>`;
+      skel+=`<line x1="${(a[0]-ox).toFixed(1)}" y1="${(a[1]-oy2).toFixed(1)}" x2="${(b[0]-ox).toFixed(1)}" y2="${(b[1]-oy2).toFixed(1)}" stroke="${bondCol}" stroke-width="${(bw*0.9).toFixed(1)}"/>`;
     }else{
       skel+=`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="${bondCol}" stroke-width="${bw.toFixed(1)}"/>`;
     }
@@ -4033,7 +4060,8 @@ function generate2DInteractionMap(){
       balls+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${ballR(at.el).toFixed(1)}" fill="${atomColOf(at.el)}" stroke="#222" stroke-width="${(bw*0.35).toFixed(2)}"/>`;
     });
   }
-  // Atom labels: heteroatoms always; carbons if requested OR if they interact; polar H if shown
+  // Atom labels: heteroatoms always; carbons if requested; polar H if shown.
+  // Labels are centered ON the atom (no offset) — bonds are already clipped.
   let atomLbls='';
   G.drawLocal.forEach(ll=>{
     const at=G.ligAtoms[ll], p=scr[ll];
@@ -4043,11 +4071,15 @@ function generate2DInteractionMap(){
     else if(at.el==='C'){ if(showCarbon){ label=at.name; fs=cFs; } }
     else { label=at.el; fs=hetFs; }
     if(label!==null){
-      // in ball&stick keep labels offset above the sphere so both are visible
-      const oy = ballStick ? -(ballR(at.el)+fs*0.5) : 0;
-      const r=Math.max(fs*0.62, label.length*fs*0.34);
-      atomLbls+=`<circle cx="${p[0].toFixed(1)}" cy="${(p[1]+oy).toFixed(1)}" r="${r.toFixed(1)}" fill="#fff" opacity="0.92"/>`;
-      atomLbls+=`<text x="${p[0].toFixed(1)}" y="${(p[1]+oy+fs/3.2).toFixed(1)}" font-size="${fs.toFixed(1)}" font-weight="bold" fill="${atomColOf(at.el)}" text-anchor="middle" font-family="Arial">${label}</text>`;
+      const r=lblR[ll]||Math.max(fs*0.56, label.length*fs*0.32);
+      if(ballStick){
+        // Ball+stick: white text inside the coloured sphere
+        atomLbls+=`<text x="${p[0].toFixed(1)}" y="${(p[1]+fs*0.36).toFixed(1)}" font-size="${fs.toFixed(1)}" font-weight="bold" fill="#fff" text-anchor="middle" font-family="Arial">${label}</text>`;
+      } else {
+        // Skeletal: tight white oval + coloured text, centered on atom position
+        atomLbls+=`<ellipse cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" rx="${r.toFixed(1)}" ry="${(r*0.85).toFixed(1)}" fill="#fff" opacity="0.97"/>`;
+        atomLbls+=`<text x="${p[0].toFixed(1)}" y="${(p[1]+fs*0.36).toFixed(1)}" font-size="${fs.toFixed(1)}" font-weight="bold" fill="${atomColOf(at.el)}" text-anchor="middle" font-family="Arial">${label}</text>`;
+      }
     }
   });
 
@@ -4116,13 +4148,29 @@ function generate2DInteractionMap(){
   nodesArr.forEach(nd=>{
     const res=nd.res, type=res.type||classifyInteraction(res.resname,res.dist), col=INTX_COLORS[type];
     if(showLines){
-      let dx=nd.x-nd.ap[0], dy=nd.y-nd.ap[1], d=Math.hypot(dx,dy)||1, ux=dx/d, uy=dy/d;
-      const ex=nd.x-ux*(nd.rx*0.7), ey=nd.y-uy*(nd.ry*0.7);   // run slightly under the bubble
-      edges+=`<line x1="${nd.ap[0].toFixed(1)}" y1="${nd.ap[1].toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${col}" stroke-width="1.7" stroke-dasharray="6 4"/>`;
+      // Start connector from MOLECULE OUTLINE (not from anchor atom center).
+      // Walk from anchor toward the bubble until we're clear of all ligand atoms.
+      const clearR=Math.max(avgBond*0.52, 18);   // min clearance from any atom
+      let sx=nd.ap[0], sy=nd.ap[1];
+      const ddx=nd.x-nd.ap[0], ddy=nd.y-nd.ap[1], ddl=Math.hypot(ddx,ddy)||1;
+      const ux0=ddx/ddl, uy0=ddy/ddl;
+      let found=false;
+      for(let t=0; t<=ddl+clearR; t+=clearR*0.18){
+        const px=nd.ap[0]+ux0*t, py=nd.ap[1]+uy0*t;
+        let ok=true;
+        for(const lp of ligPos){ if(Math.hypot(px-lp[0],py-lp[1])<clearR){ok=false;break;} }
+        if(ok){ sx=px; sy=py; found=true; break; }
+      }
+      if(!found){ sx=nd.ap[0]+ux0*clearR*1.3; sy=nd.ap[1]+uy0*clearR*1.3; }
+      // Small filled dot at anchor atom so it's clear which atom is involved
+      edges+=`<circle cx="${nd.ap[0].toFixed(1)}" cy="${nd.ap[1].toFixed(1)}" r="${(bw*2.2).toFixed(1)}" fill="${col}" opacity="0.88"/>`;
+      let dx=nd.x-sx, dy=nd.y-sy, d=Math.hypot(dx,dy)||1, ux=dx/d, uy=dy/d;
+      const ex=nd.x-ux*(nd.rx*0.7), ey=nd.y-uy*(nd.ry*0.7);
+      edges+=`<line x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${col}" stroke-width="1.7" stroke-dasharray="6 4"/>`;
       if(showEdgeLabel||showDist){
         const heavyName=G.ligAtoms[res.anchor]?.name||res.ligAtom;
         const el = showEdgeLabel ? (showDist?`${heavyName} ${res.dist.toFixed(1)}Å`:heavyName) : `${res.dist.toFixed(1)}Å`;
-        const lx=nd.ap[0]+(ex-nd.ap[0])*0.5, ly=nd.ap[1]+(ey-nd.ap[1])*0.5, ew=Math.max(26,el.length*5.2);
+        const lx=(sx+ex)*0.5, ly=(sy+ey)*0.5, ew=Math.max(26,el.length*5.2);
         edges+=`<rect x="${(lx-ew/2).toFixed(1)}" y="${(ly-7).toFixed(1)}" width="${ew.toFixed(1)}" height="13" rx="3" fill="#fff" opacity="0.92"/>`;
         edges+=`<text x="${lx.toFixed(1)}" y="${(ly+2.5).toFixed(1)}" font-size="8.5" fill="#777" text-anchor="middle" font-family="Arial">${el}</text>`;
       }
