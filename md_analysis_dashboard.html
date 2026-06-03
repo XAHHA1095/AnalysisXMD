@@ -678,7 +678,7 @@ input[type=range].traj-slider{width:180px}
     </div>
     <div class="table-wrap" id="intxtab-wrap" style="display:none;margin-top:14px">
       <table class="hbond-table">
-        <thead><tr><th>#</th><th>Residue</th><th>Interaction</th><th>Min dist (Å)</th><th>Ligand atom</th><th>Protein atom</th></tr></thead>
+        <thead><tr><th>#</th><th>Residue</th><th>Interaction</th><th>Dist (Å)</th><th>Angle (°)</th><th>Ligand atom</th><th>Protein atom</th></tr></thead>
         <tbody id="intxtab-tbody"></tbody>
       </table>
     </div>
@@ -3382,11 +3382,14 @@ const POLAR=['SER','THR','ASN','GLN','TYR','CYS','HIS','LYS','ARG','ASP','GLU','
 const HYDROPHOBIC=['ALA','VAL','LEU','ILE','MET','PHE','PRO','GLY','TRP','CYS','TYR'];
 
 const INTX_COLORS={
-  hbond:'#2ecc71', ionic:'#ff8c00', pi:'#d62fa0', hydrophobic:'#e377c2', vdw:'#9aa0a6'
+  hbond:'#2ecc71', saltbridge:'#ff8c00', ionic:'#ff8c00',
+  pistacking:'#d62fa0', pi:'#d62fa0', pication:'#8e44ad',
+  halogen:'#00b3b3', hydrophobic:'#e377c2', vdw:'#9aa0a6'
 };
 const INTX_LABEL={
-  hbond:'Hydrogen bond', ionic:'Ionic / salt bridge', pi:'π–π stacking',
-  hydrophobic:'π–alkyl / hydrophobic', vdw:'Van der Waals'
+  hbond:'Hydrogen bond', saltbridge:'Salt bridge', ionic:'Salt bridge',
+  pistacking:'π–π stacking', pi:'π–π stacking', pication:'π–cation',
+  halogen:'Halogen bond', hydrophobic:'Hydrophobic', vdw:'Van der Waals contact'
 };
 
 function classifyInteraction(resname, dist){
@@ -3439,21 +3442,24 @@ function buildInteractionTable(){
   const cutoff=parseFloat(document.getElementById('intxtab-cut').value||4.5);
   const info=document.getElementById('intxtab-info');
 
-  // Prefer the bonded graph so the ligand atom is the meaningful HEAVY atom
-  const G=getLigandGraphAndContacts(ligSel, cutoff, {polarH:false});
-  let rows;
-  if(G && G.residues.length){
-    rows=G.residues.map(r=>({
-      resname:r.resname, resno:r.resno, chain:r.chain, dist:r.dist,
-      ligAtom:G.ligAtoms[r.anchor]?.name||r.ligAtom,   // heavy atom (O3, N1, C5…)
-      protAtom:r.protAtom||''
-    }));
+  // Geometric detection (PLIP/ProLIF-style): one row per detected interaction
+  const G=detectInteractions(ligSel, cutoff, {polarH:false});
+  let list=[];
+  if(G && G.interactions.length){
+    list=G.interactions.slice().sort((a,b)=>{
+      const pa=II_PRIORITY.indexOf(a.type),pb=II_PRIORITY.indexOf(b.type);
+      return pa!==pb?pa-pb:a.dist-b.dist;
+    });
+  }else if(G && G.residues.length){
+    // no specific interaction detected → fall back to closest-contact residues
+    list=G.residues.map(r=>({type:'vdw',resname:r.resname,resno:r.resno,chain:r.chain,
+      ligAtom:G.ligAtoms[r.anchor]?.name||r.ligAtom,protAtom:r.protAtom||'',dist:r.dist,angle:null}));
   }else{
     const rd=getBindingSiteResidueData(ligSel, cutoff);
-    rows=rd.map(r=>({resname:r.resname,resno:r.resno,chain:r.chain,dist:r.min,ligAtom:r.ligAtom,protAtom:r.protAtom}));
+    list=rd.map(r=>({type:'vdw',resname:r.resname,resno:r.resno,chain:r.chain,ligAtom:r.ligAtom,protAtom:r.protAtom,dist:r.min,angle:null}));
   }
 
-  if(!rows.length){
+  if(!list.length){
     info.textContent='⚠ No interacting residues found. Check ligand selection / cutoff.';
     info.style.color='var(--amber)';
     document.getElementById('intxtab-wrap').style.display='none';
@@ -3461,27 +3467,27 @@ function buildInteractionTable(){
     return;
   }
 
-  interactionTableData=rows.map(r=>({
+  interactionTableData=list.map(r=>({
     residue:`${r.resname}${r.resno}${r.chain?(':'+r.chain):''}`,
-    type:INTX_LABEL[classifyInteraction(r.resname,r.dist)],
+    typeKey:r.type, type:INTX_LABEL[r.type]||r.type,
     dist:r.dist.toFixed(2),
-    ligAtom:r.ligAtom,
-    protAtom:r.protAtom
+    angle:(r.angle!=null)?r.angle.toFixed(0):'—',
+    ligAtom:r.ligAtom, protAtom:r.protAtom
   }));
 
-  document.getElementById('intxtab-tbody').innerHTML=interactionTableData.map((r,i)=>{
-    const t=classifyInteraction(rows[i].resname, rows[i].dist);
-    return `<tr>
+  document.getElementById('intxtab-tbody').innerHTML=interactionTableData.map((r,i)=>`
+    <tr>
       <td>${i+1}</td>
       <td class="res">${r.residue}</td>
-      <td style="color:${INTX_COLORS[t]}">${r.type}</td>
+      <td style="color:${INTX_COLORS[r.typeKey]||'#888'};font-weight:600">${r.type}</td>
       <td>${r.dist}</td>
+      <td>${r.angle}</td>
       <td style="color:var(--cyan2)">${r.ligAtom}</td>
       <td style="color:var(--text3)">${r.protAtom}</td>
-    </tr>`;
-  }).join('');
+    </tr>`).join('');
 
-  info.textContent=`${rows.length} interacting residue(s) within ${cutoff} Å`;
+  const nSpec=(G&&G.interactions)?G.interactions.length:0;
+  info.textContent=`${list.length} interaction(s) within ${cutoff} Å`+(nSpec?'':' · van der Waals contacts only');
   info.style.color='var(--text3)';
   document.getElementById('intxtab-wrap').style.display='block';
   document.getElementById('intxtab-export').style.display='inline-flex';
@@ -3489,8 +3495,8 @@ function buildInteractionTable(){
 
 function exportInteractionTableCSV(){
   if(!interactionTableData.length){alert('Generate the table first.');return;}
-  const csv='Residue,Interaction_type,Min_distance_A,Ligand_atom,Protein_atom\n'+
-    interactionTableData.map(r=>`${r.residue},${r.type},${r.dist},${r.ligAtom},${r.protAtom}`).join('\n');
+  const csv='Residue,Interaction_type,Distance_A,Angle_deg,Ligand_atom,Protein_atom\n'+
+    interactionTableData.map(r=>`${r.residue},${r.type},${r.dist},${r.angle},${r.ligAtom},${r.protAtom}`).join('\n');
   dlBlob(csv,'text/csv','ligand_interactions.csv');
 }
 
@@ -3741,6 +3747,177 @@ function getLigandGraphAndContacts(ligSel, cutoff, opts){
   return {ligAtoms, bonds, heavyLocal, drawLocal, local2proj, residues};
 }
 
+// ================================================================
+// GEOMETRIC INTERACTION DETECTION  (PLIP/ProLIF-style criteria)
+//   Replaces the residue-name heuristic with real 3D geometry:
+//   H-bonds (D–H···A distance + angle), salt bridges (charged groups),
+//   π–π stacking (ring centroids + plane angle), π–cation, halogen
+//   bonds (C–X···A angle) and hydrophobic contacts.
+//   Distance/angle cut-offs follow the PLIP defaults (Salentin 2015).
+// ================================================================
+const II_AROM_TMPL={
+  PHE:[['CG','CD1','CD2','CE1','CE2','CZ']], TYR:[['CG','CD1','CD2','CE1','CE2','CZ']],
+  HIS:[['CG','ND1','CD2','CE1','NE2']], HID:[['CG','ND1','CD2','CE1','NE2']],
+  HIE:[['CG','ND1','CD2','CE1','NE2']], HIP:[['CG','ND1','CD2','CE1','NE2']],
+  TRP:[['CD2','CE2','CE3','CZ2','CZ3','CH2'],['CG','CD1','NE1','CE2','CD2']]
+};
+const II_POS_TMPL={ARG:['NH1','NH2','NE'], LYS:['NZ'], HIS:['ND1','NE2'], HIP:['ND1','NE2']};
+const II_NEG_TMPL={ASP:['OD1','OD2'], GLU:['OE1','OE2']};
+const II_HPHOB_RES=new Set(['ALA','VAL','LEU','ILE','MET','PHE','TRP','PRO','CYS','TYR']);
+const II_PRIORITY=['saltbridge','hbond','pistacking','pication','halogen','hydrophobic'];
+
+function detectInteractions(ligSel, cutoff, opts){
+  const G=getLigandGraphAndContacts(ligSel, cutoff, opts);
+  if(!G) return null;
+  const st=nglComponent.structure;
+  const lig=G.ligAtoms, ligHeavy=G.heavyLocal;
+  const adj={}; G.bonds.forEach(([i,j])=>{(adj[i]=adj[i]||[]).push(j);(adj[j]=adj[j]||[]).push(i);});
+
+  // ---- vector helpers (accept {x,y,z} or [x,y,z]) ----
+  const P=p=>Array.isArray(p)?p:[p.x,p.y,p.z];
+  const d3=(a,b)=>{const A=P(a),B=P(b);return Math.hypot(A[0]-B[0],A[1]-B[1],A[2]-B[2]);};
+  const angAt=(p1,vtx,p2)=>{const A=P(p1),V=P(vtx),B=P(p2);
+    const ux=A[0]-V[0],uy=A[1]-V[1],uz=A[2]-V[2],wx=B[0]-V[0],wy=B[1]-V[1],wz=B[2]-V[2];
+    const dot=ux*wx+uy*wy+uz*wz,la=Math.hypot(ux,uy,uz),lb=Math.hypot(wx,wy,wz);
+    return Math.acos(Math.max(-1,Math.min(1,dot/((la*lb)||1e-9))))*180/Math.PI;};
+  const cen3=pts=>{const c=[0,0,0];pts.forEach(p=>{const q=P(p);c[0]+=q[0];c[1]+=q[1];c[2]+=q[2];});return [c[0]/pts.length,c[1]/pts.length,c[2]/pts.length];};
+  const nrm3=pts=>{const a=P(pts[0]),b=P(pts[1]),c=P(pts[2]);
+    const u=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],v=[c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+    const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+    const L=Math.hypot(n[0],n[1],n[2])||1e-9;return [n[0]/L,n[1]/L,n[2]/L];};
+  const planeAng=(n1,n2)=>Math.acos(Math.max(-1,Math.min(1,Math.abs(n1[0]*n2[0]+n1[1]*n2[1]+n1[2]*n2[2]))))*180/Math.PI;
+
+  // ---- gather protein atoms near the ligand (incl. hydrogens) ----
+  const RR=cutoff+3.0, RR2=RR*RR, prot=[];
+  st.eachAtom(a=>{
+    let near=false;
+    for(const h of ligHeavy){const dx=a.x-lig[h].x,dy=a.y-lig[h].y,dz=a.z-lig[h].z;if(dx*dx+dy*dy+dz*dz<=RR2){near=true;break;}}
+    if(near){const el=(a.element||(a.atomname||'')[0]||'C').toUpperCase();
+      prot.push({x:a.x,y:a.y,z:a.z,el,name:(a.atomname||'').toUpperCase(),
+                 resname:(a.resname||'').toUpperCase(),resno:a.resno,
+                 chain:(a.chainname&&a.chainname.trim())||'',isH:el==='H'});}
+  }, new NGL.Selection('protein'));
+
+  // hydrogens bonded (<1.3 Å) to a heavy atom — for donor geometry
+  const ligHsOf=li=>{const o=[];for(let k=0;k<lig.length;k++){if(lig[k].isH&&d3(lig[li],lig[k])<1.3)o.push(lig[k]);}return o;};
+  const protHsOf=pa=>{const o=[];for(const q of prot){if(q.isH&&d3(pa,q)<1.3)o.push(q);}return o;};
+  const dLL=(i,j)=>d3(lig[i],lig[j]);
+
+  const interactions=[];
+  const ACC=new Set(['N','O','S']);
+
+  // 1) HYDROGEN BONDS — D···A ≤ 3.5 Å and D–H···A ≥ 130°
+  for(const li of ligHeavy){
+    if(!ACC.has(lig[li].el)) continue;
+    for(const pa of prot){
+      if(pa.isH||!ACC.has(pa.el)) continue;
+      const d=d3(lig[li],pa); if(d>3.5) continue;
+      const lHs=ligHsOf(li), pHs=protHsOf(pa);
+      let best=-1, side='';
+      for(const h of lHs){const ang=angAt(lig[li],h,pa); if(ang>best){best=ang;side='ligand';}}
+      for(const h of pHs){const ang=angAt(pa,h,lig[li]); if(ang>best){best=ang;side='protein';}}
+      const noH=(lHs.length===0&&pHs.length===0);
+      if(best>=130 || (noH&&d<=3.3))
+        interactions.push({type:'hbond',resname:pa.resname,resno:pa.resno,chain:pa.chain,
+          ligLocal:li,ligAtom:lig[li].name,protAtom:pa.name,dist:d,angle:best>=0?best:null,note:side});
+    }
+  }
+
+  // group protein atoms by residue (for charged groups + aromatic rings)
+  const presMap={};
+  prot.forEach(a=>{const k=a.resno+':'+a.chain;(presMap[k]=presMap[k]||{resname:a.resname,resno:a.resno,chain:a.chain,atoms:[]}).atoms.push(a);});
+  const protCat=[], protAni=[], protRings=[];
+  Object.values(presMap).forEach(r=>{
+    const pos=II_POS_TMPL[r.resname], neg=II_NEG_TMPL[r.resname], arom=II_AROM_TMPL[r.resname];
+    if(pos){const at=r.atoms.filter(a=>pos.includes(a.name)); if(at.length) protCat.push({c:cen3(at),res:r,atom:at.map(a=>a.name).join('/')});}
+    if(neg){const at=r.atoms.filter(a=>neg.includes(a.name)); if(at.length) protAni.push({c:cen3(at),res:r,atom:at.map(a=>a.name).join('/')});}
+    if(arom) arom.forEach(names=>{const at=names.map(nm=>r.atoms.find(a=>a.name===nm)).filter(Boolean);
+      if(at.length>=3) protRings.push({c:cen3(at),n:nrm3(at),res:r});});
+  });
+
+  // ligand aromatic rings — detected by PLANARITY (robust: crystallographic
+  //   bond lengths often defeat distance-based bond-order perception, but an
+  //   aromatic ring is flat (planarDev≈0) whereas a saturated ring puckers).
+  const ligRings=[];
+  findSmallRings(lig.length,G.bonds).forEach(r=>{
+    if(r.length<5||r.length>6) return;
+    if(!r.every(i=>['C','N','O','S'].includes(lig[i].el))) return;   // sp2-capable atoms only
+    const pts=r.map(i=>[lig[i].x,lig[i].y,lig[i].z]);
+    if(ringPlanarDev(pts)<0.12) ligRings.push({atoms:r,c:cen3(pts),n:nrm3(pts)});
+  });
+  const nearestRingAtom=(ring,target)=>{let bi=ring.atoms[0],bd=Infinity;ring.atoms.forEach(ai=>{const dd=d3(lig[ai],target);if(dd<bd){bd=dd;bi=ai;}});return bi;};
+  const aromAtomSet=new Set(); ligRings.forEach(r=>r.atoms.forEach(a=>aromAtomSet.add(a)));
+
+  // ligand charged groups (approximate perception; aromatic-ring N are NOT cations)
+  const ligAni=[], ligCat=[];
+  for(const oi of ligHeavy){ if(lig[oi].el!=='O') continue;
+    for(const c of (adj[oi]||[])){ if(lig[c].isH) continue;
+      if(lig[c].el==='C'&&(adj[c]||[]).filter(n=>lig[n].el==='O').length>=2){ligAni.push({local:oi});break;}
+      if((lig[c].el==='P'||lig[c].el==='S')&&(adj[c]||[]).filter(n=>lig[n].el==='O').length>=3){ligAni.push({local:oi});break;}
+    }
+  }
+  for(const ni of ligHeavy){ if(lig[ni].el!=='N'||aromAtomSet.has(ni)) continue;
+    const nbH=(adj[ni]||[]).filter(n=>!lig[n].isH);
+    const amide=nbH.some(c=>lig[c].el==='C'&&(adj[c]||[]).some(n=>lig[n].el==='O'&&perceiveOrder('C','O',dLL(c,n))>=2));
+    const guan=nbH.some(c=>lig[c].el==='C'&&(adj[c]||[]).filter(n=>lig[n].el==='N').length>=2);
+    if(guan || (!amide && nbH.length>0 && nbH.every(c=>lig[c].el==='C'))) ligCat.push({local:ni});
+  }
+
+  // 2) SALT BRIDGES — charged centres ≤ 4.5 Å
+  protCat.forEach(pc=>ligAni.forEach(la=>{const d=d3(pc.c,lig[la.local]);
+    if(d<=4.5) interactions.push({type:'saltbridge',resname:pc.res.resname,resno:pc.res.resno,chain:pc.res.chain,ligLocal:la.local,ligAtom:lig[la.local].name,protAtom:pc.atom,dist:d,angle:null,note:'+/−'});}));
+  protAni.forEach(pa=>ligCat.forEach(lc=>{const d=d3(pa.c,lig[lc.local]);
+    if(d<=4.5) interactions.push({type:'saltbridge',resname:pa.res.resname,resno:pa.res.resno,chain:pa.res.chain,ligLocal:lc.local,ligAtom:lig[lc.local].name,protAtom:pa.atom,dist:d,angle:null,note:'−/+'});}));
+
+  // 3) π–π STACKING — centroid ≤ 5.5 Å, planes parallel (<30°) or T-shaped (>50°)
+  protRings.forEach(pr=>ligRings.forEach(lr=>{
+    const cd=d3(pr.c,lr.c); if(cd>5.5) return;
+    const ang=planeAng(pr.n,lr.n);
+    if(ang<=30||ang>=50) interactions.push({type:'pistacking',resname:pr.res.resname,resno:pr.res.resno,chain:pr.res.chain,
+      ligLocal:nearestRingAtom(lr,pr.c),ligAtom:'ring',protAtom:'ring',dist:cd,angle:ang,note:ang<=30?'parallel':'T-shaped'});
+  }));
+
+  // 4) π–CATION — cation ≤ 6 Å from an aromatic ring centroid
+  protCat.forEach(pc=>ligRings.forEach(lr=>{const d=d3(pc.c,lr.c);
+    if(d<=6.0) interactions.push({type:'pication',resname:pc.res.resname,resno:pc.res.resno,chain:pc.res.chain,ligLocal:nearestRingAtom(lr,pc.c),ligAtom:'ring',protAtom:pc.atom,dist:d,angle:null,note:'prot cation'});}));
+  ligCat.forEach(lc=>protRings.forEach(pr=>{const d=d3(lig[lc.local],pr.c);
+    if(d<=6.0) interactions.push({type:'pication',resname:pr.res.resname,resno:pr.res.resno,chain:pr.res.chain,ligLocal:lc.local,ligAtom:lig[lc.local].name,protAtom:'ring',dist:d,angle:null,note:'lig cation'});}));
+
+  // 5) HALOGEN BONDS — C–X···A ≤ 3.8 Å and C–X···A ≥ 140°
+  for(const xi of ligHeavy){ if(!['CL','BR','I'].includes(lig[xi].el)) continue;
+    const cN=(adj[xi]||[]).find(n=>lig[n].el==='C'); if(cN===undefined) continue;
+    for(const pa of prot){ if(pa.isH||!['O','N'].includes(pa.el)) continue;
+      const d=d3(lig[xi],pa); if(d>3.8) continue;
+      const ang=angAt(lig[cN],lig[xi],pa);
+      if(ang>=140) interactions.push({type:'halogen',resname:pa.resname,resno:pa.resno,chain:pa.chain,ligLocal:xi,ligAtom:lig[xi].name,protAtom:pa.name,dist:d,angle:ang,note:'C–X···A'});
+    }
+  }
+
+  // 6) HYDROPHOBIC CONTACTS — C···C ≤ 4.0 Å (one per residue, closest)
+  const hyd={};
+  for(const ci of ligHeavy){ if(lig[ci].el!=='C') continue;
+    for(const pa of prot){ if(pa.isH||pa.el!=='C'||pa.name==='C'||!II_HPHOB_RES.has(pa.resname)) continue;
+      const d=d3(lig[ci],pa); if(d>4.0) continue;
+      const k=pa.resno+':'+pa.chain;
+      if(!hyd[k]||d<hyd[k].dist) hyd[k]={type:'hydrophobic',resname:pa.resname,resno:pa.resno,chain:pa.chain,ligLocal:ci,ligAtom:lig[ci].name,protAtom:pa.name,dist:d,angle:null,note:''};
+    }
+  }
+  Object.values(hyd).forEach(o=>interactions.push(o));
+
+  // ---- per-residue summary: strongest interaction defines colour + anchor ----
+  const byRes={}; interactions.forEach(it=>{const k=it.resno+':'+it.chain;(byRes[k]=byRes[k]||[]).push(it);});
+  const residues=G.residues.map(r=>{
+    const its=byRes[r.resno+':'+r.chain]||[];
+    if(its.length){
+      its.sort((a,b)=>{const pa=II_PRIORITY.indexOf(a.type),pb=II_PRIORITY.indexOf(b.type);return pa!==pb?pa-pb:a.dist-b.dist;});
+      const top=its[0];
+      return {...r, type:top.type, anchor:top.ligLocal, dist:top.dist, ligAtom:lig[top.ligLocal].name, protAtom:top.protAtom, interactions:its};
+    }
+    return {...r, type:'vdw', interactions:[]};
+  });
+  return {...G, residues, interactions};
+}
+
 function generate2DInteractionMap(){
   if(!nglComponent?.structure){alert('Load a structure (and ligand) in the viewer first.');return;}
   const ligSel=normalizeLigSel(document.getElementById('ngl-lig-sel').value);
@@ -3764,7 +3941,7 @@ function generate2DInteractionMap(){
   const bondCol = colorMode==='single' ? singleCol : '#333';
   const atomColOf = el => colorMode==='single' ? singleCol : cpk(el);
 
-  const G=getLigandGraphAndContacts(ligSel, cutoff, {polarH:showPolarH});
+  const G=detectInteractions(ligSel, cutoff, {polarH:showPolarH});
   if(!G){
     // No bonds/structure available → simple radial diagram
     return generateSimpleDiagram(ligSel, cutoff, info);
@@ -3920,7 +4097,7 @@ function generate2DInteractionMap(){
   let surface='';
   const showSurf=document.getElementById('intx2d-surface')?.checked ?? false;
   if(showSurf && ligPos.length>=2){
-    const anchors=G.residues.map(r=>({pos:scr[r.anchor], col:INTX_COLORS[classifyInteraction(r.resname,r.dist)]})).filter(a=>a.pos);
+    const anchors=G.residues.map(r=>({pos:scr[r.anchor], col:INTX_COLORS[r.type||classifyInteraction(r.resname,r.dist)]})).filter(a=>a.pos);
     if(anchors.length){
       const segsArr=isoContourSegments(ligPos, avgBond*0.95, avgBond*0.32);
       const colAt=(x,y)=>{ let bd=Infinity,bc=anchors[0].col; for(const a of anchors){ const dx=x-a.pos[0],dy=y-a.pos[1],dd=dx*dx+dy*dy; if(dd<bd){bd=dd;bc=a.col;} } return bc; };
@@ -3937,7 +4114,7 @@ function generate2DInteractionMap(){
   // --- Draw connectors + residue bubbles (all lines dashed; bubbles ON TOP) ---
   let edges='', nodes='';
   nodesArr.forEach(nd=>{
-    const res=nd.res, type=classifyInteraction(res.resname,res.dist), col=INTX_COLORS[type];
+    const res=nd.res, type=res.type||classifyInteraction(res.resname,res.dist), col=INTX_COLORS[type];
     if(showLines){
       let dx=nd.x-nd.ap[0], dy=nd.y-nd.ap[1], d=Math.hypot(dx,dy)||1, ux=dx/d, uy=dy/d;
       const ex=nd.x-ux*(nd.rx*0.7), ey=nd.y-uy*(nd.ry*0.7);   // run slightly under the bubble
@@ -3970,7 +4147,7 @@ function generate2DInteractionMap(){
 // Build the final SVG with an auto-fitted viewBox, title and legend
 function frameSVG(minX,minY,maxX,maxY,content,residues,avgBond){
   const blur=Math.max(1.5,(avgBond||30)*0.16);
-  const types=[...new Set(residues.map(r=>classifyInteraction(r.resname,r.dist??r.min)))];
+  const types=[...new Set(residues.map(r=>r.type||classifyInteraction(r.resname,r.dist??r.min)))];
   // Scale title/legend with the figure so they stay readable when fit-to-view
   const span=Math.max(maxX-minX, maxY-minY);
   const fs=Math.max(13, span*0.022);          // legend font
