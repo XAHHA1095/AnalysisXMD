@@ -544,6 +544,16 @@ input[type=range].traj-slider{width:180px}
       <div class="controls-row" style="margin-top:4px">
         <button class="btn" onclick="nglStage&&nglStage.autoView()">Center view</button>
         <div class="ctrl-group">
+          <span class="ctrl-label">Camera:</span>
+          <select id="ngl-camera" onchange="setNGLView()" title="Orthographic avoids parts being clipped while rotating">
+            <option value="orthographic" selected>Orthographic</option>
+            <option value="perspective">Perspective</option>
+          </select>
+        </div>
+        <div class="ctrl-group">
+          <label title="Depth fog fades distant parts into the background"><input type="checkbox" id="ngl-fog" onchange="setNGLView()"> Fog</label>
+        </div>
+        <div class="ctrl-group">
           <span class="ctrl-label">Background:</span>
           <select id="ngl-bg" onchange="setNGLBackground(this.value)">
             <option value="#000814">Dark</option>
@@ -2957,8 +2967,26 @@ function toggleViewer(){
 function initNGL(){
   if(!window.NGL){console.warn('NGL.js not loaded');return;}
   document.getElementById('ngl-placeholder').style.display='none';
-  nglStage=new NGL.Stage('ngl-viewport',{backgroundColor:'#000814',quality:'medium',impostor:true,sampleLevel:0});
+  nglStage=new NGL.Stage('ngl-viewport',{
+    backgroundColor:'#000814', quality:'medium', impostor:true, sampleLevel:0,
+    cameraType:'orthographic',   // avoids the perspective near-plane clipping that
+                                 // makes parts vanish while rotating
+    clipNear:0, clipFar:100,     // keep the full depth range of the structure
+    fogNear:100, fogFar:100      // disable depth fog (no fading into the background)
+  });
   window.addEventListener('resize',()=>nglStage&&nglStage.handleResize());
+}
+
+// Apply camera / depth-cue parameters from the UI (and a safe default set).
+function setNGLView(){
+  if(!nglStage) return;
+  const cam=document.getElementById('ngl-camera')?.value||'orthographic';
+  const fog=document.getElementById('ngl-fog')?.checked;
+  nglStage.setParameters({
+    cameraType:cam,
+    clipNear:0, clipFar:100,
+    fogNear: fog?50:100, fogFar:100
+  });
 }
 
 function loadTopoFile(e){
