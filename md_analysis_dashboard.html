@@ -428,6 +428,47 @@ input[type=range].traj-slider{width:180px}
         </div>
       </div>
 
+      <!-- Compute analysis directly from the loaded trajectory (in-browser) -->
+      <div class="intx2d-card" id="traj-analysis-panel" style="display:none;margin-top:12px">
+        <h4>📈 Compute analysis from trajectory (in-browser)</h4>
+        <p class="repframe-desc">
+          Computes RMSD (Kabsch-aligned), radius of gyration, RMSF and an averaged contact map
+          directly from the loaded trajectory — no cpptraj needed. The results open in their
+          tabs with all the usual plotting/export options.
+          <b>Note:</b> apply PBC correction (cpptraj <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">autoimage</code>)
+          before loading if your solute crosses the periodic box edge.
+        </p>
+        <div class="controls-row" style="margin-bottom:8px">
+          <div class="ctrl-group">
+            <span class="ctrl-label">Atoms:</span>
+            <select id="traj-sel-preset" onchange="onTrajSelPreset()">
+              <option value="protein and backbone">Protein backbone</option>
+              <option value=".CA">C-alpha</option>
+              <option value="protein and not hydrogen">Protein heavy atoms</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+          <div class="ctrl-group" id="traj-sel-custom-group" style="display:none">
+            <input type="text" id="traj-sel-custom" value="protein and backbone" placeholder="NGL selection" style="width:190px">
+          </div>
+          <div class="ctrl-group">
+            <span class="ctrl-label">ns / frame:</span>
+            <input type="number" id="traj-dt" value="" placeholder="frame #" step="0.1" min="0" style="width:78px" title="Leave blank to use the frame number on the x-axis">
+          </div>
+          <div class="ctrl-group">
+            <span class="ctrl-label">Reference frame:</span>
+            <input type="number" id="traj-ref" value="0" min="0" step="1" style="width:70px">
+          </div>
+        </div>
+        <div class="controls-row" style="margin-bottom:0">
+          <button class="btn btn-primary" onclick="computeTrajRMSD()">Compute RMSD</button>
+          <button class="btn btn-primary" onclick="computeTrajRMSF()">Compute RMSF</button>
+          <button class="btn btn-primary" onclick="computeTrajRg()">Compute Rg</button>
+          <button class="btn" onclick="computeTrajContactMap()">Avg. contact map</button>
+          <span class="ctrl-label" id="traj-analysis-info" style="color:var(--text3)"></span>
+        </div>
+      </div>
+
       <!-- Viewer Controls: PROTEIN -->
       <div class="controls-row" style="margin-top:12px">
         <div class="ctrl-group">
@@ -1545,6 +1586,7 @@ let exportKey = '';
 
 // NGL
 let nglStage = null, nglComponent = null, nglTrajComp = null;
+let trajFramesObj = null;   // NGL Frames object (NetCDF/binary trajectory) for in-browser analysis
 let isPlaying = false, playInterval = null, currentFrame = 0, totalFrames = 0;
 
 // ================================================================
@@ -2992,7 +3034,7 @@ function setNGLView(){
 function loadTopoFile(e){
   const file=e.target.files[0];if(!file)return;
   if(!nglStage) initNGL();
-  if(nglComponent){nglStage.removeComponent(nglComponent);nglComponent=null;nglTrajComp=null;stopPlayback();}
+  if(nglComponent){nglStage.removeComponent(nglComponent);nglComponent=null;nglTrajComp=null;trajFramesObj=null;stopPlayback();}
   const btn=document.getElementById('btn-topo');
   btn.innerHTML=`⏳ Loading...<small>${file.name}</small>`;
   document.getElementById('player-bar').classList.remove('visible');
@@ -3122,8 +3164,10 @@ async function loadTrajFile(e){
     const frames = await NGL.autoLoad(file,{ext});
     if(!frames) throw new Error('autoLoad returned null — format may not be supported');
     const tc = nglComponent.addTrajectory(frames);
+    trajFramesObj = frames;                      // keep for in-browser RMSD/RMSF/Rg analysis
     setupPlayer(tc, file.name);                 // sets frame 0 + re-centres the view
     document.getElementById('traj-note').style.display='none';
+    showTrajAnalysisPanel();
   }catch(err){
     console.error('Trajectory load failed:',err);
     btn.innerHTML=`🎞 Load Coordinates / Trajectory<small>load failed — see note</small>`;
@@ -5155,6 +5199,224 @@ function exportCmapCSV(){
     csv+=labels[i]+','+Array.from({length:n},(_,j)=>matrix[i*n+j].toFixed(3)).join(',')+ '\n';
   }
   dlBlob(csv,'text/csv','contact_map.csv');
+}
+
+// ================================================================
+// IN-BROWSER TRAJECTORY ANALYSIS (RMSD / RMSF / Rg / contact map)
+//   Computed directly from the loaded NetCDF/binary trajectory frames,
+//   with optimal Kabsch superposition (quaternion / Horn 1987 method).
+// ================================================================
+const ELEM_MASS={H:1.008,C:12.011,N:14.007,O:15.999,S:32.06,P:30.974,F:18.998,
+  CL:35.45,BR:79.904,I:126.90,NA:22.99,MG:24.305,K:39.098,CA:40.078,ZN:65.38,FE:55.845};
+
+function showTrajAnalysisPanel(){ const p=document.getElementById('traj-analysis-panel'); if(p) p.style.display=''; }
+function onTrajSelPreset(){
+  const v=document.getElementById('traj-sel-preset').value;
+  document.getElementById('traj-sel-custom-group').style.display = v==='custom'?'':'none';
+}
+function getTrajSelection(){
+  const v=document.getElementById('traj-sel-preset').value;
+  return v==='custom' ? (document.getElementById('traj-sel-custom').value||'protein') : v;
+}
+function getTrajData(){
+  if(trajFramesObj && trajFramesObj.coordinates && trajFramesObj.coordinates.length)
+    return { nFrames:trajFramesObj.coordinates.length, coords:i=>trajFramesObj.coordinates[i] };
+  return null;
+}
+function trajAtomMeta(){
+  const meta=[];
+  nglComponent.structure.eachAtom(a=>{ meta[a.index]={el:(a.element||(a.atomname||'')[0]||'C').toUpperCase(),
+    resno:a.resno, resname:(a.resname||'').toUpperCase(), chain:(a.chainname||'').trim(), name:(a.atomname||'').toUpperCase()}; });
+  return meta;
+}
+function trajSelIndices(selStr){
+  const idx=[];
+  try{ nglComponent.structure.eachAtom(a=>idx.push(a.index), new NGL.Selection(selStr)); }catch(e){ console.warn('selection:',e); }
+  return idx;
+}
+function trajCheck(){
+  if(!nglComponent?.structure){ alert('Load a topology + trajectory in the viewer first.'); return false; }
+  if(!getTrajData()){ alert('No trajectory frames available. Load a .nc / .dcd / .trr / .xtc trajectory.'); return false; }
+  return true;
+}
+
+// Extract selected-atom coordinates from a frame and subtract the centroid.
+function centerSelCoords(coords, idx){
+  const N=idx.length, c=new Float64Array(N*3); let cx=0,cy=0,cz=0;
+  for(let k=0;k<N;k++){ const a=idx[k]*3, x=coords[a],y=coords[a+1],z=coords[a+2];
+    c[k*3]=x;c[k*3+1]=y;c[k*3+2]=z; cx+=x;cy+=y;cz+=z; }
+  cx/=N;cy/=N;cz/=N;
+  for(let k=0;k<N;k++){ c[k*3]-=cx;c[k*3+1]-=cy;c[k*3+2]-=cz; }
+  return c;
+}
+
+// Jacobi eigen-decomposition of a small symmetric matrix (Numerical Recipes).
+function jacobiEigen(Ain,n){
+  const a=Ain.map(r=>r.slice());
+  const v=Array.from({length:n},(_,i)=>Array.from({length:n},(_,j)=>i===j?1:0));
+  for(let iter=0; iter<120; iter++){
+    let off=0; for(let p=0;p<n;p++)for(let q=p+1;q<n;q++) off+=Math.abs(a[p][q]);
+    if(off<1e-13) break;
+    for(let p=0;p<n;p++)for(let q=p+1;q<n;q++){
+      if(Math.abs(a[p][q])<1e-16) continue;
+      const theta=(a[q][q]-a[p][p])/(2*a[p][q]);
+      const t=(theta>=0?1:-1)/(Math.abs(theta)+Math.sqrt(theta*theta+1));
+      const c=1/Math.sqrt(t*t+1), s=t*c, tau=s/(1+c), apq=a[p][q];
+      a[p][p]-=t*apq; a[q][q]+=t*apq; a[p][q]=0; a[q][p]=0;
+      for(let i=0;i<n;i++) if(i!==p&&i!==q){
+        const aip=a[i][p], aiq=a[i][q];
+        a[i][p]=aip-s*(aiq+tau*aip); a[p][i]=a[i][p];
+        a[i][q]=aiq+s*(aip-tau*aiq); a[q][i]=a[i][q];
+      }
+      for(let i=0;i<n;i++){ const vip=v[i][p], viq=v[i][q];
+        v[i][p]=vip-s*(viq+tau*vip); v[i][q]=viq+s*(vip-tau*viq); }
+    }
+  }
+  return {values:a.map((r,i)=>r[i]), V:v};
+}
+
+// Optimal-rotation RMSD (Horn quaternion). ref/mob centered, length 3N.
+// Returns {rmsd, rot} where rot applied to mob aligns it onto ref.
+function kabsch(ref, mob){
+  const N=ref.length/3;
+  let Sxx=0,Sxy=0,Sxz=0,Syx=0,Syy=0,Syz=0,Szx=0,Szy=0,Szz=0,E0=0;
+  for(let k=0;k<N;k++){
+    const mx=mob[k*3],my=mob[k*3+1],mz=mob[k*3+2], rx=ref[k*3],ry=ref[k*3+1],rz=ref[k*3+2];
+    Sxx+=mx*rx;Sxy+=mx*ry;Sxz+=mx*rz; Syx+=my*rx;Syy+=my*ry;Syz+=my*rz; Szx+=mz*rx;Szy+=mz*ry;Szz+=mz*rz;
+    E0+=mx*mx+my*my+mz*mz+rx*rx+ry*ry+rz*rz;
+  }
+  const F=[
+    [ Sxx+Syy+Szz, Syz-Szy,      Szx-Sxz,      Sxy-Syx],
+    [ Syz-Szy,     Sxx-Syy-Szz,  Sxy+Syx,      Szx+Sxz],
+    [ Szx-Sxz,     Sxy+Syx,     -Sxx+Syy-Szz,  Syz+Szy],
+    [ Sxy-Syx,     Szx+Sxz,      Syz+Szy,     -Sxx-Syy+Szz]
+  ];
+  const {values,V}=jacobiEigen(F,4);
+  let mi=0; for(let i=1;i<4;i++) if(values[i]>values[mi]) mi=i;
+  const lam=values[mi];
+  const rmsd=Math.sqrt(Math.max(0,(E0-2*lam)/N));
+  const q0=V[0][mi],q1=V[1][mi],q2=V[2][mi],q3=V[3][mi];
+  const rot=[
+    [1-2*(q2*q2+q3*q3), 2*(q1*q2-q0*q3),   2*(q1*q3+q0*q2)],
+    [2*(q1*q2+q0*q3),   1-2*(q1*q1+q3*q3), 2*(q2*q3-q0*q1)],
+    [2*(q1*q3-q0*q2),   2*(q2*q3+q0*q1),   1-2*(q1*q1+q2*q2)]
+  ];
+  return {rmsd, rot};
+}
+
+// ---- RMSD vs time ----
+function computeTrajRMSD(){
+  if(!trajCheck()) return;
+  const sel=getTrajSelection(), td=getTrajData();
+  const idx=trajSelIndices(sel);
+  const info=document.getElementById('traj-analysis-info');
+  if(idx.length<3){ info.textContent='⚠ Selection has <3 atoms.'; info.style.color='var(--amber)'; return; }
+  const refF=Math.min(Math.max(0,parseInt(document.getElementById('traj-ref').value)||0), td.nFrames-1);
+  const dt=parseFloat(document.getElementById('traj-dt').value);
+  const useDt=isFinite(dt)&&dt>0;
+  info.textContent=`Computing RMSD over ${td.nFrames} frames (${idx.length} atoms)…`; info.style.color='var(--text3)';
+  const ref=centerSelCoords(td.coords(refF), idx);
+  const pts=[];
+  for(let f=0; f<td.nFrames; f++){
+    const mob=centerSelCoords(td.coords(f), idx);
+    pts.push({x: useDt?+(f*dt).toFixed(4):f, y:+kabsch(ref,mob).rmsd.toFixed(4)});
+  }
+  state.rmsd={pts, real:true, fname:'Trajectory RMSD (computed)'};
+  document.getElementById('rmsd-chart-title').textContent='Trajectory RMSD (computed in-browser)';
+  renderRMSD(); showStats('rmsd', pts.map(p=>p.y),'Å');
+  info.textContent=`✓ RMSD computed (ref frame ${refF}). Opened in the RMSD tab.`; info.style.color='var(--green)';
+  switchTabByName('rmsd');
+}
+
+// ---- Radius of gyration vs time (mass-weighted) ----
+function computeTrajRg(){
+  if(!trajCheck()) return;
+  const sel=getTrajSelection(), td=getTrajData(), meta=trajAtomMeta();
+  const idx=trajSelIndices(sel);
+  const info=document.getElementById('traj-analysis-info');
+  if(idx.length<2){ info.textContent='⚠ Selection has <2 atoms.'; info.style.color='var(--amber)'; return; }
+  const dt=parseFloat(document.getElementById('traj-dt').value); const useDt=isFinite(dt)&&dt>0;
+  const masses=idx.map(a=>ELEM_MASS[meta[a].el]||12);
+  const t=[], rg=[];
+  for(let f=0; f<td.nFrames; f++){
+    const co=td.coords(f);
+    let M=0,cx=0,cy=0,cz=0;
+    for(let k=0;k<idx.length;k++){ const a=idx[k]*3,m=masses[k]; M+=m; cx+=m*co[a];cy+=m*co[a+1];cz+=m*co[a+2]; }
+    cx/=M;cy/=M;cz/=M;
+    let s=0; for(let k=0;k<idx.length;k++){ const a=idx[k]*3,m=masses[k]; const dx=co[a]-cx,dy=co[a+1]-cy,dz=co[a+2]-cz; s+=m*(dx*dx+dy*dy+dz*dz); }
+    rg.push(+Math.sqrt(s/M).toFixed(4)); t.push(useDt?+(f*dt).toFixed(4):f);
+  }
+  RG_DATA={t, cols:[rg], labels:['Rg'], unitX:useDt?'ns':'frame', unitY:'Å', fname:'Trajectory Rg (computed)'};
+  renderRg();
+  info.textContent=`✓ Rg computed (mass-weighted). Opened in the Rg tab.`; info.style.color='var(--green)';
+  switchTabByName('rg');
+}
+
+// ---- RMSF per residue (one-pass, aligned to reference) ----
+function computeTrajRMSF(){
+  if(!trajCheck()) return;
+  const sel=getTrajSelection(), td=getTrajData(), meta=trajAtomMeta();
+  const idx=trajSelIndices(sel), N=idx.length;
+  const info=document.getElementById('traj-analysis-info');
+  if(N<3){ info.textContent='⚠ Selection has <3 atoms.'; info.style.color='var(--amber)'; return; }
+  const refF=Math.min(Math.max(0,parseInt(document.getElementById('traj-ref').value)||0), td.nFrames-1);
+  info.textContent=`Computing RMSF over ${td.nFrames} frames…`; info.style.color='var(--text3)';
+  const ref=centerSelCoords(td.coords(refF), idx);
+  const sumX=new Float64Array(N),sumY=new Float64Array(N),sumZ=new Float64Array(N),sumSq=new Float64Array(N);
+  for(let f=0; f<td.nFrames; f++){
+    const mob=centerSelCoords(td.coords(f), idx);
+    const {rot}=kabsch(ref,mob);
+    const r00=rot[0][0],r01=rot[0][1],r02=rot[0][2],r10=rot[1][0],r11=rot[1][1],r12=rot[1][2],r20=rot[2][0],r21=rot[2][1],r22=rot[2][2];
+    for(let k=0;k<N;k++){
+      const x=mob[k*3],y=mob[k*3+1],z=mob[k*3+2];
+      const ax=r00*x+r01*y+r02*z, ay=r10*x+r11*y+r12*z, az=r20*x+r21*y+r22*z;
+      sumX[k]+=ax;sumY[k]+=ay;sumZ[k]+=az;sumSq[k]+=ax*ax+ay*ay+az*az;
+    }
+  }
+  const T=td.nFrames, rmsfAtom=new Float64Array(N);
+  for(let k=0;k<N;k++){ const mx=sumX[k]/T,my=sumY[k]/T,mz=sumZ[k]/T; rmsfAtom[k]=Math.sqrt(Math.max(0,sumSq[k]/T-(mx*mx+my*my+mz*mz))); }
+  // aggregate per residue
+  const byRes={};
+  idx.forEach((a,k)=>{ const r=meta[a].resno; (byRes[r]=byRes[r]||{resno:r,sum:0,n:0}); byRes[r].sum+=rmsfAtom[k]; byRes[r].n++; });
+  const arr=Object.values(byRes).sort((p,q)=>p.resno-q.resno);
+  const res=arr.map(o=>o.resno), v=arr.map(o=>+(o.sum/o.n).toFixed(4));
+  state.rmsf.series.push({res,v}); state.rmsf.names.push('Trajectory RMSF'); state.rmsf.real=true;
+  addBadge('rmsf-files-loaded','Trajectory RMSF', state.rmsf.series.length-1, 'removeRMSF');
+  document.getElementById('rmsf-chart-title').textContent = state.rmsf.names.length===1?'Trajectory RMSF':state.rmsf.names.length+' series';
+  renderRMSF(); showStats('rmsf', state.rmsf.series.flatMap(s=>s.v),'Å'); renderRMSFTable();
+  info.textContent=`✓ RMSF computed (${arr.length} residues). Opened in the RMSF tab.`; info.style.color='var(--green)';
+  switchTabByName('rmsf');
+}
+
+// ---- Average Cα–Cα contact-frequency map over the trajectory ----
+function computeTrajContactMap(){
+  if(!trajCheck()) return;
+  const td=getTrajData();
+  const info=document.getElementById('traj-analysis-info');
+  const cut=parseFloat(document.getElementById('cmap-cut')?.value||8);
+  // CA atoms of protein, ordered by residue
+  const caIdx=[], labels=[];
+  nglComponent.structure.eachAtom(a=>{ if((a.atomname||'').trim().toUpperCase()==='CA'){
+    caIdx.push(a.index); labels.push(`${(a.resname||'').substring(0,3)}${a.resno}${(a.chainname||'').trim()?':'+(a.chainname||'').trim():''}`);
+  }}, new NGL.Selection('protein'));
+  const n=caIdx.length;
+  if(n<2){ info.textContent='⚠ No protein Cα atoms found.'; info.style.color='var(--amber)'; return; }
+  info.textContent=`Computing Cα contact map (${n} residues × ${td.nFrames} frames)…`; info.style.color='var(--text3)';
+  const cut2=cut*cut, count=new Float64Array(n*n);
+  for(let f=0; f<td.nFrames; f++){
+    const co=td.coords(f);
+    for(let i=0;i<n;i++){ const ai=caIdx[i]*3, xi=co[ai],yi=co[ai+1],zi=co[ai+2];
+      for(let j=i+1;j<n;j++){ const aj=caIdx[j]*3, dx=xi-co[aj],dy=yi-co[aj+1],dz=zi-co[aj+2];
+        if(dx*dx+dy*dy+dz*dz<=cut2){ count[i*n+j]++; count[j*n+i]++; } } }
+  }
+  const matrix=new Float32Array(n*n);
+  for(let k=0;k<n*n;k++) matrix[k]=count[k]/td.nFrames;
+  for(let i=0;i<n;i++) matrix[i*n+i]=1;   // self
+  cmapData={matrix,n,labels,maxVal:1,isFreq:true,unitLabel:'Contact frequency'};
+  document.getElementById('cmap-info').textContent=`${n} residues · Cα–Cα ≤ ${cut} Å · averaged over ${td.nFrames} frames`;
+  drawContactMap(document.getElementById('cmap-color')?.value||'viridis');
+  info.textContent=`✓ Contact map computed. Opened in the Contact Map tab.`; info.style.color='var(--green)';
+  switchTabByName('cmap');
 }
 
 // ================================================================
