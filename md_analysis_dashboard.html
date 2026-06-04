@@ -351,15 +351,15 @@ input[type=range].traj-slider{width:180px}
       <div class="viewer-btns">
         <button class="vbtn" id="btn-topo" onclick="document.getElementById('file-topo').click()">
           📄 Load Topology / Structure
-          <small>.gro .pdb .prmtop .psf .mol2</small>
+          <small>.pdb .gro .mol2 · AMBER .prmtop/.parm7 · .psf</small>
         </button>
         <button class="vbtn" id="btn-traj" onclick="document.getElementById('file-traj').click()">
-          🎞 Load Trajectory
-          <small>.pdb multi-frame · .xtc .trr .nc .dcd</small>
+          🎞 Load Coordinates / Trajectory
+          <small>.nc (AMBER) · multi-frame .pdb · .dcd .trr .xtc</small>
         </button>
       </div>
-      <input type="file" id="file-topo" accept=".gro,.pdb,.prmtop,.psf,.mol2,.cif,.mmcif" onchange="loadTopoFile(event)">
-      <input type="file" id="file-traj" accept=".pdb,.xtc,.trr,.nc,.dcd,.mdcrd,.crd,.ncdf" onchange="loadTrajFile(event)">
+      <input type="file" id="file-topo" accept=".gro,.pdb,.prmtop,.parm7,.top,.psf,.mol2,.cif,.mmcif" onchange="loadTopoFile(event)">
+      <input type="file" id="file-traj" accept=".pdb,.xtc,.trr,.nc,.ncdf,.nctraj,.netcdf,.dcd,.mdcrd,.crd,.inpcrd,.rst7" onchange="loadTrajFile(event)">
       <div id="traj-note" style="display:none;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:11px;font-family:var(--mono);color:var(--amber);line-height:1.8">
         <strong>⚠ Binary trajectory failed.</strong> NGL.js in browser requires trajectories served by MDsrv for .xtc/.nc/.dcd.<br>
         <strong>✅ Convert to multi-frame PDB first:</strong><br>
@@ -373,7 +373,7 @@ input[type=range].traj-slider{width:180px}
         <div id="ngl-placeholder">
           <div style="font-size:36px">🧬</div>
           <div>Load a topology/structure file to visualize</div>
-          <div style="color:var(--text3);font-size:10px">Supports GROMACS (.gro, .xtc) and AMBER (.prmtop, .nc, .dcd)</div>
+          <div style="color:var(--text3);font-size:10px">AMBER: load <b>.prmtop</b> then <b>.nc</b> · GROMACS: load <b>.gro/.pdb</b> then trajectory</div>
         </div>
       </div>
 
@@ -2970,12 +2970,29 @@ function loadTopoFile(e){
   document.getElementById('player-bar').classList.remove('visible');
   document.getElementById('traj-note').style.display='none';
 
-  nglStage.loadFile(file,{name:file.name}).then(comp=>{
+  const ext=file.name.split('.').pop().toLowerCase();
+  const TOPO_ONLY=['prmtop','parm7','top','psf'];   // topology, no coordinates
+  nglStage.loadFile(file,{ext, name:file.name}).then(comp=>{
     nglComponent=comp;
     populateComponentList();      // build the PyMOL-like component explorer
     buildRepresentations();
-    comp.autoView();
     document.getElementById('ngl-placeholder').style.display='none';
+
+    // Topology-only file (AMBER prmtop/parm7, CHARMM psf): there are NO
+    // coordinates yet — they come from a trajectory/coordinate file loaded
+    // next. Don't autoView an empty (origin) structure; prompt for coords.
+    if(TOPO_ONLY.includes(ext)){
+      const n=comp.structure?.atomCount||0;
+      btn.innerHTML=`✓ ${file.name.substring(0,16)}<small>topology · ${n} atoms — load coords ↓</small>`;
+      btn.classList.add('loaded');
+      const note=document.getElementById('traj-note');
+      note.innerHTML=`<strong>✓ Topology loaded (${n} atoms) — no coordinates yet.</strong><br>`+
+        `Now load the <b>coordinates / trajectory</b> in the slot above. An AMBER <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">.nc</code> (NetCDF) trajectory works directly in the browser.<br>`+
+        `ASCII <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">.mdcrd/.inpcrd/.rst7</code> are <b>not</b> supported here — convert with cpptraj: <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">cpptraj -p sys.prmtop -y in.mdcrd -x traj.nc</code>`;
+      note.style.display='block';
+      return;
+    }
+    comp.autoView();
 
     // Check if multi-frame PDB was loaded (NGL auto-creates trajectory)
     const nModels = comp.structure?.modelStore?.count||0;
@@ -3009,7 +3026,7 @@ function loadTopoFile(e){
   }).catch(err=>{
     btn.innerHTML=`📄 Load Topology / Structure<small>error loading</small>`;
     console.error('Topology load error:',err);
-    alert('Could not load structure:\n'+err.message+'\n\nSupported: .gro .pdb .prmtop .psf .mol2');
+    alert('Could not load structure:\n'+err.message+'\n\nSupported: .pdb .gro .mol2 .cif · AMBER .prmtop/.parm7 · CHARMM .psf\n\nNote: .prmtop is topology only — after it loads, also load a .nc trajectory for coordinates.');
   });
 }
 
@@ -3057,17 +3074,35 @@ async function loadTrajFile(e){
     }
   }
 
-  // Binary trajectory (.xtc, .nc, .dcd, .trr): use NGL.autoLoad to get Frames
+  // ASCII AMBER coordinates (.mdcrd/.crd/.inpcrd/.rst7/.restrt): NGL has no
+  // parser for these text formats — guide the user to convert them.
+  if(['mdcrd','crd','inpcrd','rst7','restrt','rst'].includes(ext)){
+    btn.innerHTML=`🎞 Load Coordinates / Trajectory<small>convert ASCII → .nc / .pdb</small>`;
+    const note=document.getElementById('traj-note');
+    note.innerHTML=`<strong>⚠ ASCII AMBER coordinates (.${ext}) are not supported in the browser.</strong><br>`+
+      `Convert to NetCDF (recommended) or a multi-frame PDB with cpptraj, then load that file here:<br>`+
+      `&nbsp;&nbsp;<code style="background:var(--bg3);padding:1px 5px;border-radius:3px">cpptraj -p system.prmtop -y your.${ext} -x traj.nc</code> &nbsp;→ load <code>traj.nc</code><br>`+
+      `&nbsp;&nbsp;<code style="background:var(--bg3);padding:1px 5px;border-radius:3px">cpptraj -p system.prmtop -y your.${ext} -x traj.pdb</code> &nbsp;→ load <code>traj.pdb</code>`;
+    note.style.display='block';
+    btn.classList.remove('loaded');
+    return;
+  }
+
+  // NetCDF / binary trajectory (.nc .ncdf .nctraj .netcdf .dcd .trr .xtc):
+  // NGL parses these client-side into a Frames object → addTrajectory.
   try{
-    const frames = await NGL.autoLoad(file,{ext:ext});
+    const frames = await NGL.autoLoad(file,{ext});
     if(!frames) throw new Error('autoLoad returned null — format may not be supported');
     const tc = nglComponent.addTrajectory(frames);
-    setupPlayer(tc, file.name);
+    setupPlayer(tc, file.name);                 // sets frame 0 + re-centres the view
     document.getElementById('traj-note').style.display='none';
   }catch(err){
-    console.error('Binary trajectory load failed:',err);
-    btn.innerHTML=`🎞 Load Trajectory<small>convert to PDB first</small>`;
-    document.getElementById('traj-note').style.display='block';
+    console.error('Trajectory load failed:',err);
+    btn.innerHTML=`🎞 Load Coordinates / Trajectory<small>load failed — see note</small>`;
+    const note=document.getElementById('traj-note');
+    note.innerHTML=`<strong>⚠ Could not read this trajectory (.${ext}).</strong><br>${err.message}<br>`+
+      `Try converting a slice to NetCDF or multi-frame PDB with cpptraj / gmx trjconv and load that.`;
+    note.style.display='block';
   }
 }
 
@@ -3087,10 +3122,15 @@ function setupPlayer(trajComp, fname){
       clearInterval(poll);
       totalFrames=fc||1;
       currentFrame=0;
-      document.getElementById('traj-slider').max=totalFrames-1;
+      document.getElementById('traj-slider').max=Math.max(totalFrames-1,0);
       document.getElementById('traj-slider').value=0;
-      document.getElementById('frame-info').textContent=`Frame 0 / ${totalFrames-1}`;
+      document.getElementById('frame-info').textContent=`Frame 0 / ${Math.max(totalFrames-1,0)}`;
       document.getElementById('player-bar').classList.add('visible');
+      // Apply the first frame's coordinates and re-centre the view — a topology
+      // loaded before the trajectory had no coordinates until this moment.
+      try{ if(traj?.setFrame) traj.setFrame(0); }catch(_){}
+      setTimeout(()=>{ try{ nglComponent.autoView(400); }catch(_){}
+        document.getElementById('ngl-placeholder').style.display='none'; }, 350);
       if(fc===0) document.getElementById('frame-info').textContent='Frames not detected';
     }
   },200);
