@@ -433,10 +433,12 @@ input[type=range].traj-slider{width:180px}
         <h4>📈 Compute analysis from trajectory (in-browser)</h4>
         <p class="repframe-desc">
           Computes RMSD (Kabsch-aligned), radius of gyration, RMSF and an averaged contact map
-          directly from the loaded trajectory — no cpptraj needed. The results open in their
-          tabs with all the usual plotting/export options.
-          <b>Note:</b> apply PBC correction (cpptraj <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">autoimage</code>)
-          before loading if your solute crosses the periodic box edge.
+          directly from the loaded trajectory — works for <b>AMBER</b> (.prmtop + .nc) and
+          <b>GROMACS</b> (.gro/.pdb + .xtc/.trr); NGL normalises all coordinates to Å. The
+          results open in their tabs with the usual plotting/export options.
+          <b>PBC note:</b> if your solute crosses the periodic box edge, image it first —
+          AMBER: cpptraj <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">autoimage</code>,
+          GROMACS: <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">gmx trjconv -pbc mol -center</code>.
         </p>
         <div class="controls-row" style="margin-bottom:8px">
           <div class="ctrl-group">
@@ -3178,15 +3180,19 @@ async function loadTrajFile(e){
   }
 }
 
+let _trajPoll=null;
 function setupPlayer(trajComp, fname){
   nglTrajComp=trajComp;
+  const myTraj=trajComp;                       // guard against stale callbacks after a reload
   const btn=document.getElementById('btn-traj');
   btn.innerHTML=`✓ ${fname.substring(0,22)}<small>trajectory loaded</small>`;
   btn.classList.add('loaded');
 
   // Poll for frameCount — NGL loads frames asynchronously
+  if(_trajPoll) clearInterval(_trajPoll);
   let tries=0;
   const poll=setInterval(()=>{
+    if(nglTrajComp!==myTraj){ clearInterval(poll); return; }   // a newer trajectory replaced this one
     tries++;
     const traj=nglTrajComp?.trajectory||nglTrajComp;
     const fc=traj?.frameCount||traj?.numFrames||traj?.nframes||traj?.frames?.count||0;
@@ -3201,11 +3207,12 @@ function setupPlayer(trajComp, fname){
       // Apply the first frame's coordinates and re-centre the view — a topology
       // loaded before the trajectory had no coordinates until this moment.
       try{ if(traj?.setFrame) traj.setFrame(0); }catch(_){}
-      setTimeout(()=>{ try{ nglComponent.autoView(400); }catch(_){}
+      setTimeout(()=>{ if(nglTrajComp!==myTraj) return; try{ nglComponent.autoView(400); }catch(_){}
         document.getElementById('ngl-placeholder').style.display='none'; }, 350);
       if(fc===0) document.getElementById('frame-info').textContent='Frames not detected';
     }
   },200);
+  _trajPoll=poll;
 }
 
 function stopPlayback(){
