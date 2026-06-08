@@ -806,8 +806,16 @@ input[type=range].traj-slider{width:180px}
 
   <div class="controls-row">
     <div class="ctrl-group">
+      <span class="ctrl-label">Source:</span>
+      <select id="rmsd-engine" onchange="setMDEngine(this.value)" title="GROMACS .xvg = time; AMBER/cpptraj .dat = frame number">
+        <option value="auto">Auto-detect</option>
+        <option value="gromacs">GROMACS (time)</option>
+        <option value="amber">AMBER (frames)</option>
+      </select>
+    </div>
+    <div class="ctrl-group" id="rmsd-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
-      <input type="number" id="rmsd-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="If the file is frame-numbered (cpptraj), enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
+      <input type="number" id="rmsd-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Smoothing:</span>
@@ -1048,8 +1056,16 @@ time_ns,rmsd_A
 
   <div class="controls-row">
     <div class="ctrl-group">
+      <span class="ctrl-label">Source:</span>
+      <select id="dist-engine" onchange="setMDEngine(this.value)" title="GROMACS .xvg = time; AMBER/cpptraj .dat = frame number">
+        <option value="auto">Auto-detect</option>
+        <option value="gromacs">GROMACS (time)</option>
+        <option value="amber">AMBER (frames)</option>
+      </select>
+    </div>
+    <div class="ctrl-group" id="dist-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
-      <input type="number" id="dist-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="If the file is frame-numbered (cpptraj), enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
+      <input type="number" id="dist-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Threshold (Å):</span>
@@ -1094,8 +1110,16 @@ time_ns,rmsd_A
 
   <div class="controls-row">
     <div class="ctrl-group">
+      <span class="ctrl-label">Source:</span>
+      <select id="hbcount-engine" onchange="setMDEngine(this.value)" title="GROMACS .xvg = time; AMBER/cpptraj .dat = frame number">
+        <option value="auto">Auto-detect</option>
+        <option value="gromacs">GROMACS (time)</option>
+        <option value="amber">AMBER (frames)</option>
+      </select>
+    </div>
+    <div class="ctrl-group" id="hbcount-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
-      <input type="number" id="hbcount-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="If the file is frame-numbered (cpptraj), enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
+      <input type="number" id="hbcount-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Smoothing:</span>
@@ -1681,36 +1705,55 @@ function parseLines(text){
 }
 
 // Decide unit conversions based on header + heuristics
-// Global time-per-frame (ns). 0 = unknown → frame-indexed files stay as "Frame".
+// Time-axis interpretation. MD_ENGINE: 'auto' | 'gromacs' | 'amber'.
+// NS_PER_FRAME (ns) converts a frame index to time; 0 = unknown → show "Frame".
+let MD_ENGINE = 'auto';
 let NS_PER_FRAME = 0;
 function getNsPerFrame(){ return NS_PER_FRAME>0 ? NS_PER_FRAME : 0; }
 
 // Returns {values, kind} where kind is 'ns' or 'frame'.
 function normalizeTimeValues(t, xUnit, filename){
+  const dt=getNsPerFrame();
+  const frameLike = t.length>2 && Number.isInteger(t[0]) && Number.isInteger(t[1]) &&
+                    (t[1]-t[0]===1) && (t[2]-t[1]===1);
+  // Explicit AMBER: first column is a frame index → convert with ns/frame (or show frames)
+  if(MD_ENGINE==='amber'){
+    return dt>0 ? {values:t.map(x=>x*dt), kind:'ns'} : {values:t.slice(), kind:'frame'};
+  }
+  // Explicit GROMACS: time column (ps unless the header says ns)
+  if(MD_ENGINE==='gromacs'){
+    if(xUnit==='ns') return {values:t.slice(), kind:'ns'};
+    return {values:t.map(x=>x/1000), kind:'ns'};   // ps → ns
+  }
+  // Auto-detect
   if(xUnit==='ps') return {values:t.map(x=>x/1000), kind:'ns'};
   if(xUnit==='ns') return {values:t.slice(), kind:'ns'};
   // A first column of consecutive integers is a FRAME index (cpptraj/VMD/ptraj),
-  // NOT a time in ps — do NOT divide it by 1000 (that was the old bug that made a
-  // 10775-frame run show only 0–10 on the axis).
-  const frameLike = t.length>2 && Number.isInteger(t[0]) && Number.isInteger(t[1]) &&
-                    (t[1]-t[0]===1) && (t[2]-t[1]===1);
-  if(frameLike){
-    const dt=getNsPerFrame();
-    return dt>0 ? {values:t.map(x=>x*dt), kind:'ns'} : {values:t.slice(), kind:'frame'};
-  }
-  // GROMACS .xvg time written in ps (no explicit unit but clearly large)
+  // NOT ps — don't divide by 1000 (the old bug that squashed a 10775-frame run to 0–10).
+  if(frameLike) return dt>0 ? {values:t.map(x=>x*dt), kind:'ns'} : {values:t.slice(), kind:'frame'};
   if(filename.endsWith('.xvg') && Math.max(...t)>100) return {values:t.map(x=>x/1000), kind:'ns'};
   return {values:t.slice(), kind:'ns'};   // assume already ns (don't blindly /1000)
 }
 
-// Re-apply the time scaling to every loaded time-series chart and re-render.
-function setNsPerFrame(v){
-  NS_PER_FRAME = parseFloat(v)||0;
-  ['rmsd-nsframe','dist-nsframe','hbcount-nsframe'].forEach(id=>{const e=document.getElementById(id); if(e&&e.value!=v) e.value=v;});
+// Re-apply time scaling to every loaded time-series chart and re-render.
+function reapplyTimeAll(){
   const redo=(st)=>{ if(!st?.rawX) return null; return normalizeTimeValues(st.rawX, st.xUnit||'auto', st.fname||''); };
   if(state.rmsd?.rawX){ const r=redo(state.rmsd); state.rmsd.pts=state.rmsd.pts.map((p,i)=>({...p,x:r.values[i]})); state.rmsd.xkind=r.kind; if(state.rmsd.pts.length) renderRMSD(); }
   if(state.hbcount?.rawX){ const r=redo(state.hbcount); state.hbcount.pts=state.hbcount.pts.map((p,i)=>({...p,x:r.values[i]})); state.hbcount.xkind=r.kind; if(state.hbcount.pts.length) renderHBCount(); }
   if(state.dist?.rawX){ const r=redo(state.dist); state.dist.tArr=r.values; state.dist.xkind=r.kind; if(state.dist.replicas?.length) renderDist(); }
+}
+function setNsPerFrame(v){
+  NS_PER_FRAME = parseFloat(v)||0;
+  ['rmsd-nsframe','dist-nsframe','hbcount-nsframe'].forEach(id=>{const e=document.getElementById(id); if(e&&e.value!=v) e.value=v;});
+  reapplyTimeAll();
+}
+function setMDEngine(v){
+  MD_ENGINE = v||'auto';
+  ['rmsd-engine','dist-engine','hbcount-engine'].forEach(id=>{const e=document.getElementById(id); if(e&&e.value!==MD_ENGINE) e.value=MD_ENGINE;});
+  // Show the ns/frame field only when it is relevant (AMBER, or Auto with frame data)
+  const showNs = (MD_ENGINE==='amber' || MD_ENGINE==='auto');
+  ['rmsd-nsframe-group','dist-nsframe-group','hbcount-nsframe-group'].forEach(id=>{const e=document.getElementById(id); if(e) e.style.display=showNs?'':'none';});
+  reapplyTimeAll();
 }
 function timeAxisLabel(kind){ return kind==='frame' ? 'Frame' : 'Time (ns)'; }
 
@@ -2047,14 +2090,11 @@ function autoStep(range){
 // Build explicit, evenly-spaced "nice" tick values for the time axis
 function buildTimeTicks(mn, mx){
   const step=autoStep(mx-mn);
-  const start=Math.ceil(mn/step)*step;
+  const start=Math.floor(mn/step)*step;     // clean lower boundary
+  const end=Math.ceil(mx/step)*step;        // round the axis up to a clean tick (no crowded last label)
   const ticks=[];
-  for(let v=start; v<=mx+step*1e-6; v+=step){
-    ticks.push(+v.toFixed(6));
-  }
-  // Ensure the final data point value is represented
-  if(ticks.length && ticks[ticks.length-1] < mx - step*0.25) ticks.push(+mx.toFixed(2));
-  if(!ticks.length) ticks.push(+mn.toFixed(2), +mx.toFixed(2));
+  for(let v=start; v<=end+step*1e-6; v+=step) ticks.push(+v.toFixed(6));
+  if(ticks.length<2) ticks.push(+mn.toFixed(2), +mx.toFixed(2));
   return ticks;
 }
 
@@ -2068,8 +2108,10 @@ function linearXAxis(pts, label){
   const times = pts.map(p=>p.x).filter(x=>isFinite(x));
   const mn=Math.min(...times), mx=Math.max(...times);
   const tickVals=buildTimeTicks(mn, mx);
+  const axMin = tickVals.length?Math.min(mn,tickVals[0]):mn;
+  const axMax = tickVals.length?Math.max(mx,tickVals[tickVals.length-1]):mx;
   return {
-    type:'linear', min:mn, max:mx,
+    type:'linear', min:axMin, max:axMax,
     title:{display:true,text:label||'Time (ns)',color:TEXT_CLR,font:CHART_FONT,padding:{top:6}},
     afterBuildTicks: axis => { axis.ticks = tickVals.map(v=>({value:v})); },
     ticks:{color:TICK_CLR,font:{size:10},autoSkip:false,maxRotation:0,callback:(v)=>fmtTick(v)},
