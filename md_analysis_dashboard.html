@@ -2440,6 +2440,33 @@ function renderHBCount(){
 // ================================================================
 // RENDER H-BOND TABLE + CHART
 // ================================================================
+// Standard amino-acid residue names (incl. AMBER/CHARMM protonation variants).
+// Used to keep the per-PROTEIN-residue chart free of ligands, ions and others.
+const STD_AA=new Set(['ALA','ARG','ASN','ASP','ASH','CYS','CYX','CYM','GLN','GLU','GLH','GLY',
+  'HIS','HID','HIE','HIP','HSD','HSE','HSP','ILE','LEU','LYS','LYN','MET','MSE','PHE','PRO',
+  'SEC','SER','THR','TRP','TYR','VAL','PYL']);
+// Publication-quality qualitative palette (Tableau-20) — one colour per bar.
+const HB_PALETTE=['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b07aa1',
+  '#ff9da7','#9c755f','#bab0ac','#1f77b4','#ff7f0e','#2ca02c','#9467bd','#d62728',
+  '#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
+// Chart.js plugin: print the % value on top of each bar (in the bar's own colour).
+const hbBarLabels={
+  id:'hbBarLabels',
+  afterDatasetsDraw(chart){
+    if(chart.canvas?.id!=='hbResChart') return;
+    const ds=chart.data.datasets[0], meta=chart.getDatasetMeta(0); if(!ds||!meta) return;
+    const ctx=chart.ctx; ctx.save();
+    ctx.font='bold 10px Arial'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+    meta.data.forEach((bar,i)=>{
+      const v=ds.data[i]; if(v==null||v<=0) return;
+      ctx.fillStyle=Array.isArray(ds.backgroundColor)?ds.backgroundColor[i]:(typeof FIG_WHITE!=='undefined'&&FIG_WHITE?'#333':'#cbd5e1');
+      ctx.fillText(v.toFixed(1)+'%', bar.x, bar.y-2);
+    });
+    ctx.restore();
+  }
+};
+try{ Chart.register(hbBarLabels); }catch(_){}
+
 function renderHBTable(){
   if(!state.hbdetail.rows.length) return;
   const ligRes=document.getElementById('lig-resname').value.trim().toUpperCase();
@@ -2469,31 +2496,41 @@ function renderHBTable(){
     <td>${r.dist!==null?r.dist.toFixed(3):'—'}</td><td>${r.ang!==null?r.ang.toFixed(1):'—'}</td></tr>`;
   }).join('') + (rows.length>MAXROWS?`<tr><td colspan="8" style="text-align:center;color:var(--text3)">… ${rows.length-MAXROWS} more rows (raise the occupancy filter to narrow). Export CSV for the full list.</td></tr>`:'');
 
+  // Per-PROTEIN-residue occupancy. Exclude the ligand/ions automatically by
+  // keeping only standard amino-acid residue names (so PTC, MOL, ions… drop out
+  // without the user having to type a ligand name), plus the manual ligand filter.
   const resMap={};
   for(const r of rows){
     for(const p of [r.acceptor,r.donor,r.donorH]){
       if(ligRes&&p.toUpperCase().includes(ligRes)) continue;
       const key=hbResidueKey(p);
-      if(key) resMap[key]=Math.max(resMap[key]||0,r.frac);
+      if(!key) continue;
+      const rn=(key.match(/^([A-Za-z]+)/)||[])[1];
+      if(!rn||!STD_AA.has(rn)) continue;          // skip ligand / ions / non-standard groups
+      resMap[key]=Math.max(resMap[key]||0,r.frac);
     }
   }
   const resSorted=Object.entries(resMap).sort((a,b)=>b[1]-a[1]).slice(0,20);
   if(charts.hbres) charts.hbres.destroy();
   const ctx=document.getElementById('hbResChart').getContext('2d');
+  const colors=resSorted.map((_,i)=>HB_PALETTE[i%HB_PALETTE.length]);
+  // Auto-scale the y-axis to the data (a fixed 0–100 squashes low-occupancy bars).
+  const maxPct=resSorted.length?resSorted[0][1]*100:100;
+  const yMax = maxPct<=0?10 : (maxPct>=60?100:Math.max(10,Math.ceil(maxPct*1.18/5)*5));
   charts.hbres=new Chart(ctx,{
     type:'bar',
     data:{labels:resSorted.map(r=>r[0]),datasets:[{
       label:'H-bond occupancy',
       data:resSorted.map(r=>+(r[1]*100).toFixed(1)),
-      backgroundColor:resSorted.map(([,v])=>v>=0.5?'rgba(74,222,128,0.75)':v>=0.2?'rgba(56,189,248,0.65)':'rgba(75,85,99,0.6)'),
-      borderWidth:0
+      backgroundColor:colors, borderColor:colors, borderWidth:0, borderRadius:3, maxBarThickness:48
     }]},
     options:{
       responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
+      layout:{padding:{top:18}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw}% occupancy`}}},
       scales:{
-        x:{title:{display:true,text:'Protein residue',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:10}},grid:{display:false},border:{color:AXIS_CLR}},
-        y:{title:{display:true,text:'Occupancy (%)',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:10}},grid:{color:GRID_CLR},border:{color:AXIS_CLR},min:0,max:100}
+        x:{title:{display:true,text:'Protein residue',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:10},maxRotation:55,minRotation:0},grid:{display:false},border:{color:AXIS_CLR}},
+        y:{title:{display:true,text:'Occupancy (%)',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:10}},grid:{color:GRID_CLR},border:{color:AXIS_CLR},min:0,max:yMax}
       }
     }
   });
