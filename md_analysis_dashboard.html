@@ -806,6 +806,10 @@ input[type=range].traj-slider{width:180px}
 
   <div class="controls-row">
     <div class="ctrl-group">
+      <span class="ctrl-label">ns / frame:</span>
+      <input type="number" id="rmsd-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="If the file is frame-numbered (cpptraj), enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
+    </div>
+    <div class="ctrl-group">
       <span class="ctrl-label">Smoothing:</span>
       <input type="range" min="1" max="100" value="1" id="rmsd-smooth" oninput="updateSmooth('rmsd',this.value)">
       <span class="ctrl-label" id="rmsd-smooth-val">1</span>
@@ -1044,6 +1048,10 @@ time_ns,rmsd_A
 
   <div class="controls-row">
     <div class="ctrl-group">
+      <span class="ctrl-label">ns / frame:</span>
+      <input type="number" id="dist-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="If the file is frame-numbered (cpptraj), enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
+    </div>
+    <div class="ctrl-group">
       <span class="ctrl-label">Threshold (Å):</span>
       <input type="number" id="dist-thresh" value="50" step="1" style="width:70px">
       <button class="btn" onclick="renderDist()">Apply</button>
@@ -1085,6 +1093,10 @@ time_ns,rmsd_A
   <input type="file" id="file-hbcount" accept=".xvg,.dat,.txt,.csv" onchange="handleFile(event,'hbcount')">
 
   <div class="controls-row">
+    <div class="ctrl-group">
+      <span class="ctrl-label">ns / frame:</span>
+      <input type="number" id="hbcount-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="If the file is frame-numbered (cpptraj), enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
+    </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Smoothing:</span>
       <input type="range" min="1" max="100" value="1" id="hb-smooth" oninput="updateSmooth('hbcount',this.value)">
@@ -1669,15 +1681,38 @@ function parseLines(text){
 }
 
 // Decide unit conversions based on header + heuristics
+// Global time-per-frame (ns). 0 = unknown → frame-indexed files stay as "Frame".
+let NS_PER_FRAME = 0;
+function getNsPerFrame(){ return NS_PER_FRAME>0 ? NS_PER_FRAME : 0; }
+
+// Returns {values, kind} where kind is 'ns' or 'frame'.
 function normalizeTimeValues(t, xUnit, filename){
-  // GROMACS .xvg → ps by default, others assume ns
-  if(xUnit==='ps') return t.map(x=>x/1000);
-  if(xUnit==='ns') return t;
-  // auto: if max > 1000 and .xvg → ps; else assume ns
-  if(filename.endsWith('.xvg') && Math.max(...t)>100) return t.map(x=>x/1000);
-  if(Math.max(...t)>1000) return t.map(x=>x/1000);
-  return t;
+  if(xUnit==='ps') return {values:t.map(x=>x/1000), kind:'ns'};
+  if(xUnit==='ns') return {values:t.slice(), kind:'ns'};
+  // A first column of consecutive integers is a FRAME index (cpptraj/VMD/ptraj),
+  // NOT a time in ps — do NOT divide it by 1000 (that was the old bug that made a
+  // 10775-frame run show only 0–10 on the axis).
+  const frameLike = t.length>2 && Number.isInteger(t[0]) && Number.isInteger(t[1]) &&
+                    (t[1]-t[0]===1) && (t[2]-t[1]===1);
+  if(frameLike){
+    const dt=getNsPerFrame();
+    return dt>0 ? {values:t.map(x=>x*dt), kind:'ns'} : {values:t.slice(), kind:'frame'};
+  }
+  // GROMACS .xvg time written in ps (no explicit unit but clearly large)
+  if(filename.endsWith('.xvg') && Math.max(...t)>100) return {values:t.map(x=>x/1000), kind:'ns'};
+  return {values:t.slice(), kind:'ns'};   // assume already ns (don't blindly /1000)
 }
+
+// Re-apply the time scaling to every loaded time-series chart and re-render.
+function setNsPerFrame(v){
+  NS_PER_FRAME = parseFloat(v)||0;
+  ['rmsd-nsframe','dist-nsframe','hbcount-nsframe'].forEach(id=>{const e=document.getElementById(id); if(e&&e.value!=v) e.value=v;});
+  const redo=(st)=>{ if(!st?.rawX) return null; return normalizeTimeValues(st.rawX, st.xUnit||'auto', st.fname||''); };
+  if(state.rmsd?.rawX){ const r=redo(state.rmsd); state.rmsd.pts=state.rmsd.pts.map((p,i)=>({...p,x:r.values[i]})); state.rmsd.xkind=r.kind; if(state.rmsd.pts.length) renderRMSD(); }
+  if(state.hbcount?.rawX){ const r=redo(state.hbcount); state.hbcount.pts=state.hbcount.pts.map((p,i)=>({...p,x:r.values[i]})); state.hbcount.xkind=r.kind; if(state.hbcount.pts.length) renderHBCount(); }
+  if(state.dist?.rawX){ const r=redo(state.dist); state.dist.tArr=r.values; state.dist.xkind=r.kind; if(state.dist.replicas?.length) renderDist(); }
+}
+function timeAxisLabel(kind){ return kind==='frame' ? 'Frame' : 'Time (ns)'; }
 
 function normalizeRMSDValues(v, yUnit, filename){
   // If header says nm → multiply by 10
@@ -1711,9 +1746,10 @@ function parseFile(file, type){
     if(!rows.length){alert('Could not read data from file. Please check the format.');return;}
 
     if(type==='rmsd'){
-      let t = normalizeTimeValues(rows.map(r=>r[0]), xUnit, file.name);
+      const rawX=rows.map(r=>r[0]);
+      const tt = normalizeTimeValues(rawX, xUnit, file.name); const t=tt.values;
       let v = normalizeRMSDValues(rows.map(r=>r[1]), yUnit, file.name);
-      state.rmsd = {pts: t.map((x,i)=>({x,y:+v[i].toFixed(4)})), real:true, fname:file.name};
+      state.rmsd = {pts: t.map((x,i)=>({x,y:+v[i].toFixed(4)})), real:true, fname:file.name, rawX, xUnit, xkind:tt.kind};
       document.getElementById('rmsd-chart-title').textContent = file.name;
       renderRMSD();
       showStats('rmsd', v, 'Å');
@@ -1723,21 +1759,23 @@ function parseFile(file, type){
       renderPCA();
     }
     else if(type==='dist'){
-      let t = normalizeTimeValues(rows.map(r=>r[0]), xUnit, file.name);
+      const rawX=rows.map(r=>r[0]);
+      const tt = normalizeTimeValues(rawX, xUnit, file.name); const t=tt.values;
       const nRep = rows[0].length-1;
       let reps = Array.from({length:nRep},(_,i)=>rows.map(r=>r[i+1]));
       reps = reps.map(rep => {
         const mx = Math.max(...rep);
         return (file.name.endsWith('.xvg')&&mx<10) ? rep.map(x=>x*10) : rep;
       });
-      state.dist = {tArr:t, replicas:reps, real:true, fname:file.name};
+      state.dist = {tArr:t, replicas:reps, real:true, fname:file.name, rawX, xUnit, xkind:tt.kind};
       document.getElementById('dist-chart-title').textContent = file.name;
       renderDist();
     }
     else if(type==='hbcount'){
-      let t = normalizeTimeValues(rows.map(r=>r[0]), xUnit, file.name);
+      const rawX=rows.map(r=>r[0]);
+      const tt = normalizeTimeValues(rawX, xUnit, file.name); const t=tt.values;
       let v = rows.map(r=>r[1]);
-      state.hbcount = {pts: t.map((x,i)=>({x,y:v[i]})), real:true, fname:file.name};
+      state.hbcount = {pts: t.map((x,i)=>({x,y:v[i]})), real:true, fname:file.name, rawX, xUnit, xkind:tt.kind};
       document.getElementById('hbcount-chart-title').textContent = file.name;
       renderHBCount();
       showStats('hbcount', v, 'H-bonds');
@@ -1780,10 +1818,10 @@ function parseMultiFile(file){
     const {xUnit,yUnit} = parseXVGHeader(text);
     const rows = parseLines(text);
     if(!rows.length) return;
-    let t = normalizeTimeValues(rows.map(r=>r[0]), xUnit, file.name);
+    const tt = normalizeTimeValues(rows.map(r=>r[0]), xUnit, file.name); const t=tt.values;
     let v = normalizeRMSDValues(rows.map(r=>r[1]), yUnit, file.name);
     const name = file.name.replace(/\.[^.]+$/,'');
-    state.multi.series.push({pts: t.map((x,i)=>({x,y:+v[i].toFixed(4)}))});
+    state.multi.series.push({pts: t.map((x,i)=>({x,y:+v[i].toFixed(4)})), xkind:tt.kind});
     state.multi.names.push(name);
     state.multi.real = true;
     addBadge('multi-files-loaded', name, state.multi.series.length-1, 'removeMulti');
@@ -2067,7 +2105,7 @@ function renderRMSD(){
   const w=parseInt(document.getElementById('rmsd-smooth').value||1);
   const pub=document.getElementById('rmsd-pub')?.checked;
   const ctx=document.getElementById('rmsdChart').getContext('2d');
-  const xax=linearXAxis(state.rmsd.pts,'Time (ns)');
+  const xax=linearXAxis(state.rmsd.pts, timeAxisLabel(state.rmsd.xkind));
   const yax={...yAxisOpts('RMSD (Å)'), min:0};   // origin at 0
 
   if(pub){
@@ -2407,7 +2445,7 @@ function renderDist(){
       responsive:true,maintainAspectRatio:false,animation:{duration:300},
       plugins:{legend:{display:true,labels:{color:TEXT_CLR,font:{size:11},boxWidth:12}}},
       scales:{
-        x:linearXAxis(allPts,'Time (ns)'),
+        x:linearXAxis(allPts, timeAxisLabel(state.dist.xkind)),
         y:yAxisOpts('Distance (Å)')
       }
     }
@@ -2433,7 +2471,7 @@ function renderHBCount(){
     type:'line',
     data:{datasets:[{label:'H-bonds',data:pts,borderColor:'#2dd4bf',borderWidth:1.5,
       backgroundColor:'rgba(45,212,175,0.1)',fill:true,pointRadius:0,tension:0.3}]},
-    options:baseOpts(linearXAxis(pts,'Time (ns)'),'Number of H-bonds')
+    options:baseOpts(linearXAxis(pts, timeAxisLabel(state.hbcount.xkind)),'Number of H-bonds')
   });
 }
 
@@ -2652,7 +2690,7 @@ function renderMulti(){
       options:{
         responsive:true,maintainAspectRatio:false,animation:{duration:300},
         plugins:{legend:{display:true,position:'top',align:'start',labels:{color:TEXT_CLR,font:{size:11},boxWidth:14,boxHeight:3,filter:legFilter}}},
-        scales:{x:linearXAxis(allPts,'Time (ns)'),y:yax}
+        scales:{x:linearXAxis(allPts, timeAxisLabel(state.multi.series[0]?.xkind)),y:yax}
       }
     });
     document.getElementById('multi-chart-title').textContent=
