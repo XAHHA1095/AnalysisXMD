@@ -2453,14 +2453,17 @@ const HB_PALETTE=['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#
 const hbBarLabels={
   id:'hbBarLabels',
   afterDatasetsDraw(chart){
-    if(chart.canvas?.id!=='hbResChart') return;
+    // runs on the live chart (canvas id) and on the export clone (options flag)
+    const on = chart.canvas?.id==='hbResChart' || chart.options?.plugins?.hbBarLabels?.on;
+    if(!on) return;
     const ds=chart.data.datasets[0], meta=chart.getDatasetMeta(0); if(!ds||!meta) return;
-    const ctx=chart.ctx; ctx.save();
-    ctx.font='bold 10px Arial'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+    const ctx=chart.ctx, fs=Math.max(10, Math.round(chart.width*0.013));   // scales with export size
+    ctx.save();
+    ctx.font=`bold ${fs}px Arial`; ctx.textAlign='center'; ctx.textBaseline='bottom';
     meta.data.forEach((bar,i)=>{
       const v=ds.data[i]; if(v==null||v<=0) return;
       ctx.fillStyle=Array.isArray(ds.backgroundColor)?ds.backgroundColor[i]:(typeof FIG_WHITE!=='undefined'&&FIG_WHITE?'#333':'#cbd5e1');
-      ctx.fillText(v.toFixed(1)+'%', bar.x, bar.y-2);
+      ctx.fillText(v.toFixed(1)+'%', bar.x, bar.y - fs*0.25);
     });
     ctx.restore();
   }
@@ -2895,6 +2898,7 @@ async function exportHighDPI(key, W, H, bg){
       layout:{padding:{top:Math.round(16*sc),right:Math.round(20*sc),bottom:Math.round(8*sc),left:Math.round(8*sc)}},
       plugins:{
         ...src.options.plugins,
+        hbBarLabels:{on: src.canvas?.id==='hbResChart'},   // print % on top of bars in the export too
         legend:src.options.plugins?.legend?.display?{
           display:true,
           position: hasBand?'top':'bottom',         // band style → legend top (like the reference)
@@ -2959,11 +2963,21 @@ function exportSVG(key, bg){
     grid+=`<line x1="${pad.left}" y1="${sy.toFixed(1)}" x2="${pad.left+pW}" y2="${sy.toFixed(1)}" stroke="${grdC}" stroke-width="1"/>
     <text x="${(pad.left-10).toFixed(0)}" y="${(sy+5).toFixed(0)}" fill="${txtC}" font-size="13" text-anchor="end">${isFinite(t)?(+t.toFixed(2)):t}</text>`;
   }
-  const step=scX.ticks?.[1]?.value&&scX.ticks?.[0]?.value?scX.ticks[1].value-scX.ticks[0].value:autoStep(xMax-xMin);
-  for(let x=Math.ceil(xMin/step)*step;x<=xMax+0.001;x+=step){
-    const sx=toX(x);
-    grid+=`<line x1="${sx.toFixed(1)}" y1="${pad.top}" x2="${sx.toFixed(1)}" y2="${pad.top+pH}" stroke="${grdC}" stroke-width="1"/>
-    <text x="${sx.toFixed(0)}" y="${(pad.top+pH+22).toFixed(0)}" fill="${txtC}" font-size="13" text-anchor="middle">${+x.toFixed(2)}</text>`;
+  const isBar=chart.config.type==='bar';
+  if(isBar){
+    // categorical x-axis: one (rotated) residue label under each bar
+    const labels=chart.data.labels||[], nb=labels.length;
+    labels.forEach((lb,i)=>{
+      const xC=pad.left+(i+0.5)*(pW/Math.max(nb,1)), yy=pad.top+pH+18;
+      grid+=`<text x="${xC.toFixed(0)}" y="${yy.toFixed(0)}" fill="${txtC}" font-size="12" text-anchor="end" transform="rotate(-45 ${xC.toFixed(0)} ${yy.toFixed(0)})">${lb}</text>`;
+    });
+  } else {
+    const step=scX.ticks?.[1]?.value&&scX.ticks?.[0]?.value?scX.ticks[1].value-scX.ticks[0].value:autoStep(xMax-xMin);
+    for(let x=Math.ceil(xMin/step)*step;x<=xMax+0.001;x+=step){
+      const sx=toX(x);
+      grid+=`<line x1="${sx.toFixed(1)}" y1="${pad.top}" x2="${sx.toFixed(1)}" y2="${pad.top+pH}" stroke="${grdC}" stroke-width="1"/>
+      <text x="${sx.toFixed(0)}" y="${(pad.top+pH+22).toFixed(0)}" fill="${txtC}" font-size="13" text-anchor="middle">${+x.toFixed(2)}</text>`;
+    }
   }
 
   let paths='';
@@ -2999,7 +3013,8 @@ function exportSVG(key, bg){
         const xC=pad.left+(i+0.5)*(pW/Math.max(nBar,1));
         const yT=toY(v),yB=toY(Math.max(yMin,0));
         const fc=Array.isArray(ds.backgroundColor)?ds.backgroundColor[i]||(pal[di%pal.length]+'cc'):stroke+'cc';
-        paths+=`<rect x="${(xC-bw/2).toFixed(1)}" y="${yT.toFixed(1)}" width="${bw.toFixed(1)}" height="${(yB-yT).toFixed(1)}" fill="${fc}"/>`;
+        paths+=`<rect x="${(xC-bw/2).toFixed(1)}" y="${yT.toFixed(1)}" width="${bw.toFixed(1)}" height="${(yB-yT).toFixed(1)}" fill="${fc}" rx="2"/>`;
+        if(isFinite(v)&&v>0) paths+=`<text x="${xC.toFixed(1)}" y="${(yT-5).toFixed(1)}" fill="${fc}" font-size="12" font-weight="bold" text-anchor="middle">${(+v).toFixed(1)}%</text>`;
       });
     } else if(srcType==='scatter'){
       for(const p of dpts){
