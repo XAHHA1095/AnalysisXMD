@@ -2035,18 +2035,20 @@ function updateSmooth(type, val){
 // ================================================================
 // CHART AXIS HELPERS
 // ================================================================
-let GRID_CLR='rgba(56,189,248,0.07)';
-let AXIS_CLR='rgba(56,189,248,0.2)';
-let TEXT_CLR='#94a3b8';
-let TICK_CLR='#4b5563';
+// Academic style: no gridlines, thin clean axes (Nature/Science look).
+let GRID_CLR='transparent';
+let AXIS_CLR='#9aa6b2';
+let TEXT_CLR='#cbd5e1';
+let TICK_CLR='#94a3b8';
 let FIG_WHITE=false;
 
 // Toggle white "publication" background for the on-screen figures (matches the export)
 function setFigureTheme(white){
   FIG_WHITE=white;
   document.body.classList.toggle('fig-white', white);
-  if(white){ TEXT_CLR='#333333'; TICK_CLR='#555555'; GRID_CLR='#e8e8e8'; AXIS_CLR='#999999'; }
-  else { TEXT_CLR='#94a3b8'; TICK_CLR='#4b5563'; GRID_CLR='rgba(56,189,248,0.07)'; AXIS_CLR='rgba(56,189,248,0.2)'; }
+  if(white){ TEXT_CLR='#222222'; TICK_CLR='#444444'; AXIS_CLR='#444444'; }
+  else { TEXT_CLR='#cbd5e1'; TICK_CLR='#94a3b8'; AXIS_CLR='#9aa6b2'; }
+  GRID_CLR='transparent';   // never draw gridlines (academic)
   const btn=document.getElementById('fig-theme-btn'); if(btn) btn.textContent=white?'🌙 Dark figures':'☀ Light figures';
   rerenderAll();
 }
@@ -2096,7 +2098,8 @@ function exportMultiCSV(){
   });
   dlBlob(csv,'text/csv','multi_rmsd_raw.csv');
 }
-const CHART_FONT={family:"'JetBrains Mono',monospace",size:11};
+// Clean sans-serif for axis titles/ticks (academic figure convention)
+const CHART_FONT={family:"'Helvetica Neue', Helvetica, Arial, sans-serif",size:12};
 
 function autoStep(range){
   if(!isFinite(range)||range<=0) return 1;
@@ -2951,8 +2954,8 @@ async function exportHighDPI(key, W, H, bg){
   const labelSz=Math.round(17*sc), tickSz=Math.round(13*sc), lineW=Math.max(1.5,1.25*sc);
   const isDark=bg==='#05080f';
   const textC=isDark?'#e2e8f0':'#111827';
-  const gridC=isDark?'rgba(255,255,255,0.08)':'#ebebeb';
-  const axisC=isDark?'rgba(148,163,184,0.4)':'#888888';
+  const gridC='transparent';                                   // academic: no gridlines in the export
+  const axisC=isDark?'rgba(226,232,240,0.6)':'#444444';
   const font={family:'Arial, Helvetica, sans-serif'};
 
   // Clone datasets with publication style
@@ -3061,26 +3064,32 @@ function exportSVG(key, bg){
   const toX=v=>pad.left+(v-xMin)/(xMax-xMin)*pW;
   const toY=v=>pad.top+pH-(v-yMin)/(yMax-yMin)*pH;
 
+  // Academic axes: NO gridlines — just an L-shaped frame (left + bottom) with
+  // short outward tick marks and labels.
   let grid='';
+  const axColor=isDark?'#9aa6b2':'#444444';
+  const x0=pad.left, x1=pad.left+pW, yB=pad.top+pH;
+  grid+=`<line x1="${x0.toFixed(1)}" y1="${pad.top.toFixed(1)}" x2="${x0.toFixed(1)}" y2="${yB.toFixed(1)}" stroke="${axColor}" stroke-width="1.4"/>`;
+  grid+=`<line x1="${x0.toFixed(1)}" y1="${yB.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${yB.toFixed(1)}" stroke="${axColor}" stroke-width="1.4"/>`;
   for(const t of (scY.ticks||[]).map(t=>t.value)){
     const sy=toY(t);
-    grid+=`<line x1="${pad.left}" y1="${sy.toFixed(1)}" x2="${pad.left+pW}" y2="${sy.toFixed(1)}" stroke="${grdC}" stroke-width="1"/>
-    <text x="${(pad.left-10).toFixed(0)}" y="${(sy+5).toFixed(0)}" fill="${txtC}" font-size="13" text-anchor="end">${isFinite(t)?(+t.toFixed(2)):t}</text>`;
+    grid+=`<line x1="${(x0-5).toFixed(1)}" y1="${sy.toFixed(1)}" x2="${x0.toFixed(1)}" y2="${sy.toFixed(1)}" stroke="${axColor}" stroke-width="1.1"/>
+    <text x="${(x0-10).toFixed(0)}" y="${(sy+5).toFixed(0)}" fill="${txtC}" font-size="13" text-anchor="end">${isFinite(t)?(+t.toFixed(2)):t}</text>`;
   }
   const isBar=chart.config.type==='bar';
   if(isBar){
     // categorical x-axis: one (rotated) residue label under each bar
     const labels=chart.data.labels||[], nb=labels.length;
     labels.forEach((lb,i)=>{
-      const xC=pad.left+(i+0.5)*(pW/Math.max(nb,1)), yy=pad.top+pH+18;
+      const xC=pad.left+(i+0.5)*(pW/Math.max(nb,1)), yy=yB+18;
       grid+=`<text x="${xC.toFixed(0)}" y="${yy.toFixed(0)}" fill="${txtC}" font-size="12" text-anchor="end" transform="rotate(-45 ${xC.toFixed(0)} ${yy.toFixed(0)})">${lb}</text>`;
     });
   } else {
     const step=scX.ticks?.[1]?.value&&scX.ticks?.[0]?.value?scX.ticks[1].value-scX.ticks[0].value:autoStep(xMax-xMin);
     for(let x=Math.ceil(xMin/step)*step;x<=xMax+0.001;x+=step){
       const sx=toX(x);
-      grid+=`<line x1="${sx.toFixed(1)}" y1="${pad.top}" x2="${sx.toFixed(1)}" y2="${pad.top+pH}" stroke="${grdC}" stroke-width="1"/>
-      <text x="${sx.toFixed(0)}" y="${(pad.top+pH+22).toFixed(0)}" fill="${txtC}" font-size="13" text-anchor="middle">${+x.toFixed(2)}</text>`;
+      grid+=`<line x1="${sx.toFixed(1)}" y1="${yB.toFixed(1)}" x2="${sx.toFixed(1)}" y2="${(yB+5).toFixed(1)}" stroke="${axColor}" stroke-width="1.1"/>
+      <text x="${sx.toFixed(0)}" y="${(yB+22).toFixed(0)}" fill="${txtC}" font-size="13" text-anchor="middle">${+x.toFixed(2)}</text>`;
     }
   }
 
