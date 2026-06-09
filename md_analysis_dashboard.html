@@ -3399,8 +3399,9 @@ function setupPlayer(trajComp, fname){
       // user has not entered one) and update the RMSD/distance/H-bond time axes.
       if(NS_PER_FRAME<=0){
         const dt=applyDetectedTime();
-        if(dt){ const n=document.getElementById('traj-note');
-          if(n){ n.innerHTML=`<strong>⏱ Auto-detected ${dt} ns/frame</strong> from this trajectory — the RMSD / distance / H-bond time axes are now in ns. Adjust the “ns / frame” field on those tabs if your analysis used a different stride.`; n.style.display='block'; } }
+        if(dt){ const n=document.getElementById('traj-note'); const totNs=(totalFrames*dt);
+          if(n){ n.innerHTML=`<strong>⏱ Auto-detected ${dt} ns/frame</strong> → ≈ <strong>${totNs.toFixed(1)} ns</strong> for ${totalFrames} frames. `+
+            `<span style="color:var(--amber)">Verify this matches your run</span> (ns/frame = ntwx×dt, e.g. 5000×0.002 ps = 0.01 ns). AMBER .nc time is sometimes wrong — if the total looks off, just type the correct “ns / frame” on the RMSD/distance/H-bond tabs.`; n.style.display='block'; } }
       }
       if(fc===0) document.getElementById('frame-info').textContent='Frames not detected';
     }
