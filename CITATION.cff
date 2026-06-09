@@ -19,6 +19,7 @@ keywords:
   - protein-ligand
   - GROMACS
   - AMBER
+  - NAMD
   - cpptraj
   - RMSD
   - RMSF

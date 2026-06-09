@@ -4,6 +4,7 @@ tags:
   - molecular dynamics
   - GROMACS
   - AMBER
+  - NAMD
   - protein–ligand interactions
   - trajectory analysis
   - data visualization
@@ -25,9 +26,9 @@ bibliography: paper.bib
 `AnalysisXMD` is a lightweight, single-file web application for the analysis and
 visualization of molecular dynamics (MD) simulations of protein–ligand systems.
 It runs entirely in the browser, requires no installation, server, or Python
-environment, and reads the native text output produced by the two most widely
-used MD engines, GROMACS [@abraham2015gromacs] and AMBER (via `cpptraj`)
-[@roe2013ptraj]. From these files the tool computes and displays root-mean-square
+environment, and reads the native output produced by the most widely
+used MD engines — GROMACS [@abraham2015gromacs], AMBER (via `cpptraj`)
+[@roe2013ptraj], and NAMD/CHARMM (PSF + DCD). From these files the tool computes and displays root-mean-square
 deviation (RMSD) and fluctuation (RMSF), principal component projections,
 inter-group distances, hydrogen-bond occupancy, and multi-replica comparisons,
 and it renders interactive three-dimensional trajectories using NGL Viewer
