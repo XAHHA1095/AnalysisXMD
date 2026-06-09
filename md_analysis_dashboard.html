@@ -1579,6 +1579,9 @@ ALA1  VAL2  LEU3  ...
         <option value="colorblind">Colorblind-safe (Wong 2011)</option>
       </select>
     </div>
+    <div class="modal-row" id="exp-combine-row" style="display:none;margin-top:6px">
+      <label style="font-size:13px"><input type="checkbox" id="exp-combine"> Combine RMSD with its distribution box plot (one side-by-side figure)</label>
+    </div>
     <div class="modal-btns">
       <button class="btn" onclick="closeExport()">Cancel</button>
       <button class="btn btn-primary" onclick="doExport()">Download</button>
@@ -2299,7 +2302,7 @@ function renderRMSD(){
       data:{datasets:bandDatasets(state.rmsd.pts, win, color, 'RMSD (mean ± SD)')},
       options:{
         responsive:true,maintainAspectRatio:false,animation:false,
-        plugins:{legend:{display:true,position:'top',align:'start',labels:{color:TEXT_CLR,font:{size:11},filter:legFilter,boxHeight:3}},tooltip:{enabled:true}},
+        plugins:{legend:{display:true,position:'top',align:'center',labels:{color:TEXT_CLR,font:{size:11},filter:legFilter,boxHeight:3,padding:14}},tooltip:{enabled:true}},
         scales:{x:xax, y:yax}
       }
     });
@@ -3045,29 +3048,36 @@ function exportCSV(type){
 // ================================================================
 const CHART_CANVAS_MAP={rmsd:'rmsdChart',rmsf:'rmsfChart',pca:'pcaChart',dist:'distChart',hbcount:'hbcountChart',hbres:'hbResChart',multi:'multiChart'};
 
-function openExport(key){exportKey=key;document.getElementById('export-modal').classList.add('open');}
+function openExport(key){
+  exportKey=key;
+  const row=document.getElementById('exp-combine-row');
+  if(row) row.style.display = (key==='rmsd') ? '' : 'none';
+  document.getElementById('export-modal').classList.add('open');
+}
 function closeExport(){document.getElementById('export-modal').classList.remove('open');}
 
 function doExport(){
   const fmt=document.getElementById('exp-format').value;
   const bg=document.getElementById('exp-bg').value;
+  const combine = exportKey==='rmsd' && document.getElementById('exp-combine')?.checked;
+  if(combine){
+    const [W,H]=document.getElementById('exp-res').value.split('x').map(Number);
+    exportRMSDCombined(W,H,bg).then(()=>closeExport());
+    return;
+  }
   if(fmt==='svg'){exportSVG(exportKey,bg);closeExport();return;}
   const [W,H]=document.getElementById('exp-res').value.split('x').map(Number);
   exportHighDPI(exportKey,W,H,bg).then(()=>closeExport());
 }
 
-async function exportHighDPI(key, W, H, bg){
-  const src=charts[key];
-  if(!src){alert('No data to export.');return;}
+// Render one chart onto an offscreen canvas (W×H) with publication styling.
+// Returns {canvas, chart}; the caller composites / downloads and destroys.
+async function renderChartToCanvas(src, W, H, bg){
   const pal=PALETTES[document.getElementById('exp-palette').value]||PALETTES.matplotlib;
-
   const offCanvas=document.createElement('canvas');
   offCanvas.width=W; offCanvas.height=H;
   const ctx=offCanvas.getContext('2d');
-
-  // Fill background first
   if(bg!=='transparent'){ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);}
-
   // Scale-based font sizes (render at size, not upscale)
   const sc=W/900;
   const labelSz=Math.round(17*sc), tickSz=Math.round(13*sc), lineW=Math.max(1.5,1.25*sc);
@@ -3141,11 +3151,21 @@ async function exportHighDPI(key, W, H, bg){
     }
   });
 
-  // Wait until the chart is fully drawn (box plots with many points need longer),
-  // then refill the background BEHIND the chart and do a single clean download.
-  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-  await new Promise(r=>setTimeout(r, srcType==='boxplot'?800:300));
-  // Composite onto a guaranteed solid background (so 'white' truly fills the PNG)
+  // Wait until the chart is fully drawn (box plots with many points need longer).
+  // Race the rAF against a timeout so the export never hangs if rAF is throttled
+  // (e.g. the browser tab is in the background).
+  await Promise.race([
+    new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),
+    new Promise(r=>setTimeout(r, 400))
+  ]);
+  await new Promise(r=>setTimeout(r, srcType==='boxplot'?700:250));
+  return {canvas:offCanvas, chart:tempChart};
+}
+
+async function exportHighDPI(key, W, H, bg){
+  const src=charts[key];
+  if(!src){alert('No data to export.');return;}
+  const {canvas:offCanvas, chart:tempChart}=await renderChartToCanvas(src, W, H, bg);
   if(bg!=='transparent'){
     const final=document.createElement('canvas'); final.width=W; final.height=H;
     const fctx=final.getContext('2d');
@@ -3156,6 +3176,31 @@ async function exportHighDPI(key, W, H, bg){
     const a=document.createElement('a');a.href=offCanvas.toDataURL('image/png',1.0);a.download=key+'_'+W+'x'+H+'.png';a.click();
   }
   tempChart.destroy();
+}
+
+// Combined publication figure: RMSD distribution box plot (left) + RMSD vs time
+// (right), rendered side by side into a single image.
+async function exportRMSDCombined(W, H, bg){
+  const line=charts.rmsd;
+  if(!line){ alert('Load RMSD data first.'); return; }
+  let box=charts.rmsdbox;
+  if(!box){   // box plot not on screen → build it on the fly
+    if(document.getElementById('rmsd-box')){ document.getElementById('rmsd-box').checked=true; toggleRMSDBox(); box=charts.rmsdbox; await new Promise(r=>setTimeout(r,150)); }
+  }
+  if(!box){ return exportHighDPI('rmsd', W, H, bg); }   // fallback
+  const boxW=Math.max(180, Math.round(W*0.26)), lineW=W-boxW;
+  const [b, l]=await Promise.all([
+    renderChartToCanvas(box, boxW, H, bg),
+    renderChartToCanvas(line, lineW, H, bg)
+  ]);
+  const final=document.createElement('canvas'); final.width=W; final.height=H;
+  const fctx=final.getContext('2d');
+  if(bg!=='transparent'){ fctx.fillStyle=bg; fctx.fillRect(0,0,W,H); }
+  fctx.drawImage(b.canvas, 0, 0);
+  fctx.drawImage(l.canvas, boxW, 0);
+  const a=document.createElement('a'); a.href=final.toDataURL('image/png',1.0);
+  a.download='rmsd_with_distribution_'+W+'x'+H+'.png'; a.click();
+  b.chart.destroy(); l.chart.destroy();
 }
 
 // ================================================================
