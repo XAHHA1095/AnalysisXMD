@@ -1533,6 +1533,25 @@ ALA1  VAL2  LEU3  ...
         <span class="footer-badge">🔥 XMD</span>
       </div>
     </div>
+    <div class="footer-card">
+      <h4>Resource &amp; Citation</h4>
+      <ul class="footer-list">
+        <li><b>Repository</b><span><a href="https://github.com/XAHHA1095/AnalysisXMD" target="_blank" rel="noopener" style="color:var(--cyan2);text-decoration:none">github.com/XAHHA1095/AnalysisXMD</a></span></li>
+        <li><b>Run online</b><span><a href="https://xahha1095.github.io/AnalysisXMD/" target="_blank" rel="noopener" style="color:var(--cyan2);text-decoration:none">xahha1095.github.io/AnalysisXMD</a></span></li>
+        <li><b>DOI</b><span><a href="https://doi.org/10.5281/zenodo.20515932" target="_blank" rel="noopener" style="color:var(--cyan2);text-decoration:none">10.5281/zenodo.20515932</a></span></li>
+        <li><b>License</b><span>MIT</span></li>
+      </ul>
+      <div style="margin-top:12px">
+        <div style="font-size:10px;font-family:var(--mono);color:var(--text3);letter-spacing:.6px;text-transform:uppercase;margin-bottom:6px">How to cite</div>
+        <div id="cite-apa" style="font-size:11px;line-height:1.65;color:var(--text2);background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+          Oré Maldonado, K. A. (2026). <i>AnalysisXMD: A browser-based dashboard for protein–ligand molecular dynamics analysis</i> (Version 1.0.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.20515932
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn" onclick="copyCitation('apa')" style="font-size:11px;padding:5px 10px">📋 Copy citation</button>
+          <button class="btn" onclick="copyCitation('bibtex')" style="font-size:11px;padding:5px 10px">📋 Copy BibTeX</button>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="footer-bottom">
     AnalysisXMD · Developed by <b style="color:var(--text2)">Kevin Anthony Oré Maldonado</b> — Universidad Andrés Bello, Chile<br>
@@ -3042,6 +3061,29 @@ function toggleAnnotation(id){document.getElementById(id).classList.toggle('visi
 // ================================================================
 function dlBlob(content, mime, filename){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:mime}));a.download=filename;a.click();
+}
+
+// Copy the software citation (APA or BibTeX) to the clipboard.
+function copyCitation(kind){
+  const apa='Oré Maldonado, K. A. (2026). AnalysisXMD: A browser-based dashboard for protein–ligand molecular dynamics analysis (Version 1.0.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.20515932';
+  const bibtex='@software{oremaldonado2026analysisxmd,\n'+
+    '  author  = {Oré Maldonado, Kevin Anthony},\n'+
+    '  title   = {{AnalysisXMD}: A browser-based dashboard for protein--ligand molecular dynamics analysis},\n'+
+    '  year    = {2026},\n'+
+    '  version = {1.0.0},\n'+
+    '  doi     = {10.5281/zenodo.20515932},\n'+
+    '  url     = {https://github.com/XAHHA1095/AnalysisXMD}\n}';
+  const txt = kind==='bibtex' ? bibtex : apa;
+  const done=()=>alert((kind==='bibtex'?'BibTeX':'Citation')+' copied to clipboard.');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(done).catch(()=>fallbackCopy(txt,done));
+  } else fallbackCopy(txt,done);
+}
+function fallbackCopy(txt,cb){
+  const ta=document.createElement('textarea'); ta.value=txt;
+  ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select();
+  try{ document.execCommand('copy'); }catch(_){}
+  document.body.removeChild(ta); if(cb) cb();
 }
 function exportCSV(type){
   if(type==='rmsd'&&state.rmsd.pts.length){
