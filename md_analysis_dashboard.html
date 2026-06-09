@@ -1849,6 +1849,7 @@ function parseFile(file, type){
   const reader = new FileReader();
   reader.onload = ev => {
     const text = ev.target.result;
+    CHART_ANIMATE=true;   // animate (left-to-right sweep) once for this fresh load
     // H-bond inputs: auto-detect a cpptraj/VMD occupancy table (first column is
     // a residue@atom label, e.g. "PTC_597@O7") vs a per-frame count time-series
     // (first column is numeric). This way EITHER H-bond slot accepts EITHER file.
@@ -1935,6 +1936,7 @@ function parseMultiFile(file){
     const {xUnit,yUnit} = parseXVGHeader(text);
     const rows = parseLines(text);
     if(!rows.length) return;
+    CHART_ANIMATE=true;
     const tt = normalizeTimeValues(rows.map(r=>r[0]), xUnit, file.name); const t=tt.values;
     let v = normalizeRMSDValues(rows.map(r=>r[1]), yUnit, file.name);
     const name = file.name.replace(/\.[^.]+$/,'');
@@ -2151,6 +2153,40 @@ function exportMultiCSV(){
 // Clean sans-serif for axis titles/ticks (academic figure convention)
 const CHART_FONT={family:"'Helvetica Neue', Helvetica, Arial, sans-serif",size:12};
 
+// Left-to-right "draw" reveal: the curve is revealed from the y-axis to the end
+// of the x-axis (nicer than the default bottom-up grow). Driven by chart.$sweep
+// (0→1) via requestAnimationFrame; only runs when CHART_ANIMATE is set (fresh
+// data load), so it does NOT replay while dragging sliders.
+const sweepReveal={
+  id:'sweepReveal',
+  beforeDatasetsDraw(chart){
+    const p=chart.$sweep; if(p===undefined||p>=1) return;
+    const a=chart.chartArea, ctx=chart.ctx;
+    ctx.save(); ctx.beginPath();
+    ctx.rect(a.left-1, a.top-3, Math.max(0,(a.right-a.left+2)*p), (a.bottom-a.top)+6);
+    ctx.clip();
+  },
+  afterDatasetsDraw(chart){ const p=chart.$sweep; if(p!==undefined&&p<1) chart.ctx.restore(); }
+};
+try{ Chart.register(sweepReveal); }catch(_){}
+let CHART_ANIMATE=false;
+function sweepAnimate(chart, dur){
+  if(!chart||!chart.ctx) return;
+  dur=dur||650; chart.$sweep=0;
+  const t0=performance.now();
+  const finish=()=>{ if(chart&&chart.$sweep!==undefined){ chart.$sweep=undefined; try{ chart.draw(); }catch(_){} } };
+  const tick=now=>{
+    if(!chart||!chart.ctx){ return; }
+    const e=Math.min(1,(now-t0)/dur);
+    chart.$sweep=1-Math.pow(1-e,3);              // easeOutCubic
+    try{ chart.draw(); }catch(_){}
+    if(e<1) requestAnimationFrame(tick); else finish();
+  };
+  requestAnimationFrame(tick);
+  setTimeout(finish, dur+300);                    // safety: always fully render even if rAF is throttled
+}
+function maybeSweep(chart){ if(CHART_ANIMATE){ CHART_ANIMATE=false; sweepAnimate(chart); } }
+
 function autoStep(range){
   if(!isFinite(range)||range<=0) return 1;
   if(range<=5)   return 1;
@@ -2167,11 +2203,10 @@ function autoStep(range){
 // Build explicit, evenly-spaced "nice" tick values for the time axis
 function buildTimeTicks(mn, mx){
   const step=autoStep(mx-mn);
-  const start=Math.floor(mn/step)*step;     // clean lower boundary
-  const end=Math.ceil(mx/step)*step;        // round the axis up to a clean tick (no crowded last label)
+  const start=Math.ceil(mn/step)*step;       // first clean tick ≥ data min
   const ticks=[];
-  for(let v=start; v<=end+step*1e-6; v+=step) ticks.push(+v.toFixed(6));
-  if(ticks.length<2) ticks.push(+mn.toFixed(2), +mx.toFixed(2));
+  for(let v=start; v<=mx+step*1e-6; v+=step) ticks.push(+v.toFixed(6));   // only up to the data max
+  if(ticks.length<2) return [+mn.toFixed(2), +mx.toFixed(2)];
   return ticks;
 }
 
@@ -2185,10 +2220,8 @@ function linearXAxis(pts, label){
   const times = pts.map(p=>p.x).filter(x=>isFinite(x));
   const mn=Math.min(...times), mx=Math.max(...times);
   const tickVals=buildTimeTicks(mn, mx);
-  const axMin = tickVals.length?Math.min(mn,tickVals[0]):mn;
-  const axMax = tickVals.length?Math.max(mx,tickVals[tickVals.length-1]):mx;
   return {
-    type:'linear', min:axMin, max:axMax,
+    type:'linear', min:mn, max:mx,            // tight fit — the line spans the full x-axis
     title:{display:true,text:label||'Time (ns)',color:TEXT_CLR,font:CHART_FONT,padding:{top:6}},
     afterBuildTicks: axis => { axis.ticks = tickVals.map(v=>({value:v})); },
     ticks:{color:TICK_CLR,font:{size:10},autoSkip:false,maxRotation:0,callback:(v)=>fmtTick(v)},
@@ -2207,7 +2240,7 @@ function yAxisOpts(label){
 function baseOpts(xOpts, yLabel, legendCfg){
   return{
     responsive:true,maintainAspectRatio:false,
-    animation:{duration:300},
+    animation:false,
     plugins:{legend:legendCfg||{display:false},tooltip:{enabled:true,titleFont:{family:"'JetBrains Mono',monospace"},bodyFont:{family:"'JetBrains Mono',monospace"}}},
     scales:{x:xOpts,y:yAxisOpts(yLabel)}
   };
@@ -2234,7 +2267,7 @@ function renderRMSD(){
       type:'line',
       data:{datasets:bandDatasets(state.rmsd.pts, win, color, 'RMSD (mean ± SD)')},
       options:{
-        responsive:true,maintainAspectRatio:false,animation:{duration:300},
+        responsive:true,maintainAspectRatio:false,animation:false,
         plugins:{legend:{display:true,position:'top',align:'start',labels:{color:TEXT_CLR,font:{size:11},filter:legFilter,boxHeight:3}},tooltip:{enabled:true}},
         scales:{x:xax, y:yax}
       }
@@ -2245,11 +2278,12 @@ function renderRMSD(){
       type:'line',
       data:{datasets:[{label:'RMSD',data:pts,borderColor:color,borderWidth:1.5,
         backgroundColor:fill?color+'22':'transparent',fill,pointRadius:0,tension:0.3}]},
-      options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      options:{responsive:true,maintainAspectRatio:false,animation:false,
         plugins:{legend:{display:false},tooltip:{enabled:true}},
         scales:{x:xax, y:yax}}
     });
   }
+  maybeSweep(charts.rmsd);
   if(document.getElementById('rmsd-box')?.checked) renderRMSDBox();
 }
 
@@ -2438,7 +2472,7 @@ function renderRMSDBox(){
       outlierRadius:2, outlierBackgroundColor:'rgba(110,110,110,0.5)', meanRadius:0, medianColor:'#1a1a1a', medianWidth:1.6
     }]},
     options:{
-      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      responsive:true,maintainAspectRatio:false,animation:false,
       plugins:{legend:{display:false},tooltip:{enabled:true}},
       scales:{
         x:{ticks:{color:TICK_CLR,font:{size:10}},grid:{display:false},border:{color:AXIS_CLR}},
@@ -2468,7 +2502,7 @@ function renderRMSF(){
   charts.rmsf=new Chart(ctx,{
     type:'bar',data:{labels:state.rmsf.series[0].res,datasets},
     options:{
-      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      responsive:true,maintainAspectRatio:false,animation:false,
       plugins:{legend:{display:state.rmsf.series.length>1||showLine,labels:{color:TEXT_CLR,font:{size:11}}}},
       scales:{
         x:{title:{display:true,text:'Residue',color:TEXT_CLR,font:CHART_FONT},
@@ -2561,7 +2595,7 @@ function renderDist(){
   charts.dist=new Chart(ctx,{
     type:'line',data:{datasets},
     options:{
-      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      responsive:true,maintainAspectRatio:false,animation:false,
       plugins:{legend:{display:true,labels:{color:TEXT_CLR,font:{size:11},boxWidth:12}}},
       scales:{
         x:linearXAxis(allPts, timeAxisLabel(state.dist.xkind)),
@@ -2569,6 +2603,7 @@ function renderDist(){
       }
     }
   });
+  maybeSweep(charts.dist);
   const el=document.getElementById('dist-legend');
   el.innerHTML=state.dist.replicas.map((r,i)=>{
     const mean=(r.reduce((a,b)=>a+b,0)/r.length).toFixed(2);
@@ -2592,6 +2627,7 @@ function renderHBCount(){
       backgroundColor:'rgba(45,212,175,0.1)',fill:true,pointRadius:0,tension:0.3}]},
     options:baseOpts(linearXAxis(pts, timeAxisLabel(state.hbcount.xkind)),'Number of H-bonds')
   });
+  maybeSweep(charts.hbcount);
 }
 
 // ================================================================
@@ -2807,11 +2843,12 @@ function renderMulti(){
     charts.multi=new Chart(ctx,{
       type:'line', data:{datasets},
       options:{
-        responsive:true,maintainAspectRatio:false,animation:{duration:300},
+        responsive:true,maintainAspectRatio:false,animation:false,
         plugins:{legend:{display:true,position:'top',align:'start',labels:{color:TEXT_CLR,font:{size:11},boxWidth:14,boxHeight:3,filter:legFilter}}},
         scales:{x:linearXAxis(allPts, timeAxisLabel(state.multi.series[0]?.xkind)),y:yax}
       }
     });
+    maybeSweep(charts.multi);
     document.getElementById('multi-chart-title').textContent=
       (state.multi.names.length)+' replica(s) — RMSD vs time'+(pub?' (mean ± SD)':'');
   }
@@ -2852,7 +2889,7 @@ function renderMultiBox(ctx){
       lowerColor:undefined
     }]},
     options:{
-      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      responsive:true,maintainAspectRatio:false,animation:false,
       plugins:{legend:{display:false},tooltip:{enabled:true}},
       scales:{
         x:{ticks:{color:TICK_CLR,font:{size:11},maxRotation:35,minRotation:25},grid:{display:false},border:{color:AXIS_CLR}},
@@ -2912,7 +2949,7 @@ function renderMultiDensity(ctx){
     type:'line',
     data:{datasets},
     options:{
-      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      responsive:true,maintainAspectRatio:false,animation:false,
       plugins:{
         legend:{display:true,labels:{color:TEXT_CLR,font:{size:11},boxWidth:12}},
         title:{display:true,text:'RMSD Density Distribution',color:TEXT_CLR,font:{family:"'JetBrains Mono',monospace",size:12}}
@@ -2929,6 +2966,7 @@ function renderMultiDensity(ctx){
       }
     }
   });
+  maybeSweep(charts.multi);
   document.getElementById('multi-chart-title').textContent=
     (state.multi.names.length)+' replica(s) — RMSD density (KDE)';
 }
@@ -5180,7 +5218,7 @@ function parseRgFile(text, fname){
   const labels=[];
   for(let c=0;c<nCols;c++) labels.push(headerCols[c]||defLabels[c]||`Col${c+1}`);
   RG_DATA={t, cols, labels, unitX:'ns', unitY:'Å', fname};
-  renderRg();
+  CHART_ANIMATE=true; renderRg();
 }
 
 const RG_COLORS=['#1f77b4','#d62728','#2ca02c','#ff7f0e'];
@@ -5235,6 +5273,7 @@ function renderRg(){
     }
   });
   charts['rg']=rgChart;
+  maybeSweep(rgChart);
 }
 function runMean(pts,w){
   const hw=Math.floor(w/2);
@@ -5592,7 +5631,7 @@ function computeTrajRMSD(){
   state.rmsd={pts: rawX.map((x,i)=>({x:tt.values[i], y:rmsdArr[i]})), real:true,
               fname:'Trajectory RMSD (computed)', rawX, xUnit:'auto', xkind:tt.kind};
   document.getElementById('rmsd-chart-title').textContent='Trajectory RMSD (computed in-browser)';
-  renderRMSD(); showStats('rmsd', rmsdArr,'Å');
+  CHART_ANIMATE=true; renderRMSD(); showStats('rmsd', rmsdArr,'Å');
   info.textContent=`✓ RMSD computed from ${td.nFrames} frames (ref ${refF}). On the RMSD tab set “ns / frame” to scale the time axis.`; info.style.color='var(--green)';
   switchTabByName('rmsd');
 }
@@ -5616,7 +5655,7 @@ function computeTrajRg(){
     rg.push(+Math.sqrt(s/M).toFixed(4)); t.push(useDt?+(f*dt).toFixed(4):f);
   }
   RG_DATA={t, cols:[rg], labels:['Rg'], unitX:useDt?'ns':'frame', unitY:'Å', fname:'Trajectory Rg (computed)'};
-  renderRg();
+  CHART_ANIMATE=true; renderRg();
   info.textContent=`✓ Rg computed (mass-weighted). Opened in the Rg tab.`; info.style.color='var(--green)';
   switchTabByName('rg');
 }
