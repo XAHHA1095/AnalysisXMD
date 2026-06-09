@@ -191,14 +191,19 @@ To run with **zero internet dependency**, download these two libraries next to t
 
 ---
 
-## Repository Structure (suggested)
+## Repository Structure
 
 ```
 AnalysisXMD/
 ├── md_analysis_dashboard.html   # the whole app (open this)
 ├── README.md                    # this file
-├── LICENSE                      # see below
-└── examples/                    # (optional) sample .xvg / .dat files
+├── LICENSE                      # MIT
+├── CITATION.cff                 # "Cite this repository" metadata
+├── paper.md / paper.bib         # JOSS-style software paper
+├── manuscript/                  # Journal of Cheminformatics manuscript
+│   ├── AnalysisXMD_JChemInf.md  #   full software-article draft
+│   └── references.bib           #   bibliography
+└── examples/                    # sample .xvg / .dat files
 ```
 
 ---
@@ -213,6 +218,19 @@ AnalysisXMD/
 | Trajectory won't load | Convert to **multi-frame PDB** (see above). Binary `.xtc`/`.nc` need a server to stream. |
 | Density X-axis too wide | Use the **manual X max** control in Multi-Replica, or it auto-clamps to the 99.5th percentile. |
 | Nothing loads at all | Check your internet connection (first load needs the CDN), or set up [offline use](#-offline-use). |
+
+---
+
+## 📄 Article / Manuscript
+
+A software-article manuscript describing AnalysisXMD is being prepared for the **[Journal of Cheminformatics](https://jcheminf.biomedcentral.com/)**. The working draft and its bibliography live in [`manuscript/`](manuscript/):
+
+- **[`manuscript/AnalysisXMD_JChemInf.md`](manuscript/AnalysisXMD_JChemInf.md)** — full draft: Background (the gap vs cpptraj/gmx, MDAnalysis/MDTraj, VMD/PyMOL, PLIP/ProLIF and web tools), Implementation (GROMACS + AMBER support, in-browser Kabsch RMSD/RMSF/Rg/contact maps, the NetCDF/MD-input time parsers, PLIP/ProLIF-style geometric interaction detection, 2D diagrams and publication figures), a **PROTAC–TERT case study**, a validation against PLIP/ProLIF, and a tool-comparison table.
+- **[`manuscript/references.bib`](manuscript/references.bib)** — BibTeX references.
+
+A shorter **[JOSS](https://joss.theoj.org/)-style** software summary is also available in [`paper.md`](paper.md) / [`paper.bib`](paper.bib).
+
+> ⚠️ The manuscript is a **work in progress** — passages marked `[[ … ]]` are placeholders for final data, figures and numbers still to be inserted.
 
 ---
 
