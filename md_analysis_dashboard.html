@@ -305,16 +305,6 @@ input[type=range].traj-slider{width:180px}
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div class="ctrl-group" title="Font size for all chart axes, ticks and legends (screen + exported figures)">
-      <span class="ctrl-label">Figure font:</span>
-      <select id="font-scale" onchange="setFontScale(this.value)">
-        <option value="0.85">Small</option>
-        <option value="1" selected>Normal</option>
-        <option value="1.2">Large</option>
-        <option value="1.4">X-Large</option>
-        <option value="1.7">XX-Large</option>
-      </select>
-    </div>
     <button class="btn" id="fig-theme-btn" onclick="setFigureTheme(!FIG_WHITE)" title="Preview figures on white background (matches the downloaded image)">☀ Light figures</button>
     <div id="ff-badge" class="badge-ff">Protein–Ligand MD</div>
   </div>
@@ -878,11 +868,6 @@ input[type=range].traj-slider{width:180px}
       Export figure
     </button>
     <button class="btn" onclick="exportCSV('rmsd')">Export CSV</button>
-    <button class="btn" onclick="toggleAnnotation('rmsd-ann')">Annotation</button>
-  </div>
-  <div class="annotation-panel" id="rmsd-ann">
-    <span style="font-size:11px;color:var(--text2);font-family:var(--mono)">Figure notes:</span>
-    <textarea placeholder="e.g. System equilibrates ~5 ns. Backbone RMSD plateau ~2.2 Å. Force field CHARMM36m."></textarea>
   </div>
 
   <!-- REPRESENTATIVE FRAME -->
@@ -1607,6 +1592,16 @@ ALA1  VAL2  LEU3  ...
         <option value="monochrome">Monochrome (black/gray)</option>
         <option value="colorblind">Colorblind-safe (Wong 2011)</option>
       </select>
+
+      <label style="margin-top:10px">Axis / tick / legend font size</label>
+      <select id="exp-font" onchange="setFontScale(this.value)">
+        <option value="0.85">Small</option>
+        <option value="1" selected>Normal</option>
+        <option value="1.25">Large</option>
+        <option value="1.5">X-Large</option>
+        <option value="1.8">XX-Large</option>
+      </select>
+      <div class="exp-note">Only affects the downloaded figure — the on-screen charts stay the same.</div>
     </div>
     <div class="modal-row" id="exp-combine-row" style="display:none;margin-top:6px">
       <label style="font-size:13px"><input type="checkbox" id="exp-combine"> Combine RMSD with its distribution box plot (one side-by-side figure)</label>
@@ -2213,13 +2208,13 @@ function exportMultiCSV(){
   });
   dlBlob(csv,'text/csv','multi_rmsd_raw.csv');
 }
-// Global, user-adjustable figure font scale. fs(px) scales a base size.
+// FONT_SCALE applies ONLY to the exported/downloaded figures (chosen in the
+// export dialog) — the on-screen charts keep fixed, readable sizes.
 let FONT_SCALE=1;
-function fs(px){ return Math.max(6, Math.round(px*FONT_SCALE)); }
-// Clean sans-serif for axis titles/ticks (academic figure convention). size is a
-// getter so it always reflects the current FONT_SCALE.
-const CHART_FONT={family:"'Helvetica Neue', Helvetica, Arial, sans-serif", get size(){ return fs(13); }};
-function setFontScale(v){ FONT_SCALE=parseFloat(v)||1; rerenderAll(); }
+function fs(px){ return px; }   // on-screen: fixed font sizes (not user-scaled)
+// Clean sans-serif for axis titles/ticks (academic figure convention)
+const CHART_FONT={family:"'Helvetica Neue', Helvetica, Arial, sans-serif", size:13};
+function setFontScale(v){ FONT_SCALE=parseFloat(v)||1; }   // read at export time
 
 // Left-to-right "draw" reveal: the curve is revealed from the y-axis to the end
 // of the x-axis (nicer than the default bottom-up grow). Driven by chart.$sweep
@@ -3116,6 +3111,7 @@ function closeExport(){document.getElementById('export-modal').classList.remove(
 function doExport(){
   const fmt=document.getElementById('exp-format').value;
   const bg=document.getElementById('exp-bg').value;
+  FONT_SCALE=parseFloat(document.getElementById('exp-font')?.value)||1;   // download-only font size
   const combine = exportKey==='rmsd' && document.getElementById('exp-combine')?.checked;
   if(combine){
     const [W,H]=document.getElementById('exp-res').value.split('x').map(Number);
