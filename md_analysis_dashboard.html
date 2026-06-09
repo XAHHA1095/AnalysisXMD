@@ -816,7 +816,9 @@ input[type=range].traj-slider{width:180px}
     <div class="ctrl-group" id="rmsd-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
       <input type="number" id="rmsd-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
-      <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ auto</button>
+      <button class="btn" onclick="document.getElementById('mdin-file').click()" title="Calculate ns/frame from your MD input file (AMBER .in: dt×ntwx, or GROMACS .mdp: dt×nstxout) — the exact, reliable way" style="padding:4px 9px">📄 from .in/.mdp</button>
+      <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ from traj</button>
+      <input type="file" id="mdin-file" accept=".in,.mdin,.mdp,.txt,.inp" onchange="loadMDInputFile(event)" style="display:none">
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Smoothing:</span>
@@ -1067,7 +1069,8 @@ time_ns,rmsd_A
     <div class="ctrl-group" id="dist-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
       <input type="number" id="dist-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
-      <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ auto</button>
+      <button class="btn" onclick="document.getElementById('mdin-file').click()" title="Calculate ns/frame from your MD input file (AMBER .in or GROMACS .mdp)" style="padding:4px 9px">📄 from .in/.mdp</button>
+      <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ from traj</button>
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Threshold (Å):</span>
@@ -1122,7 +1125,8 @@ time_ns,rmsd_A
     <div class="ctrl-group" id="hbcount-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
       <input type="number" id="hbcount-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
-      <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ auto</button>
+      <button class="btn" onclick="document.getElementById('mdin-file').click()" title="Calculate ns/frame from your MD input file (AMBER .in or GROMACS .mdp)" style="padding:4px 9px">📄 from .in/.mdp</button>
+      <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ from traj</button>
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Smoothing:</span>
@@ -1828,7 +1832,34 @@ function applyDetectedTime(){
 function applyDetectedTimeUI(){
   const v=applyDetectedTime();
   if(v){ alert(`Detected ${v} ns/frame from the loaded trajectory — the time axis has been updated.`); }
-  else { alert('No per-frame time found.\n\nLoad your trajectory (.xtc reliably, or .nc) in the 3D viewer first. AMBER .nc files sometimes store no time — then enter ns/frame manually (it is your save interval, e.g. ntwx×dt).'); }
+  else { alert('No per-frame time found.\n\nLoad your trajectory (.xtc reliably, or .nc) in the 3D viewer first. AMBER .nc files sometimes store no time — then use the "📄 .in/.mdp" button or enter ns/frame manually (= ntwx×dt).'); }
+}
+
+// Compute ns/frame straight from the MD INPUT file (which always has dt & the
+// write interval): AMBER mdin (dt=, ntwx=) or GROMACS mdp (dt=, nstxout...=).
+// ns/frame = dt(ps) × write_interval / 1000.
+function parseMDInputForNsPerFrame(text){
+  const t=text.toLowerCase();
+  let dt=null, ntw=null, src='';
+  let m=t.match(/\bdt\s*=\s*([0-9.eed+\-]+)/);            if(m) dt=parseFloat(m[1]);
+  m=t.match(/\bntwx\s*=\s*([0-9]+)/);                     if(m){ ntw=parseInt(m[1]); src='AMBER (dt×ntwx)'; }
+  if(ntw==null){ m=t.match(/nstxout[-_]compressed\s*=\s*([0-9]+)/); if(m){ ntw=parseInt(m[1]); src='GROMACS (dt×nstxout-compressed)'; } }
+  if(ntw==null){ m=t.match(/\bnstxout\s*=\s*([0-9]+)/);   if(m){ ntw=parseInt(m[1]); src='GROMACS (dt×nstxout)'; } }
+  if(dt>0 && ntw>0) return { ns:+(dt*ntw/1000).toPrecision(6), dt, ntw, src };
+  return null;
+}
+function loadMDInputFile(e){
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    const res=parseMDInputForNsPerFrame(ev.target.result);
+    if(res){ setNsPerFrame(String(res.ns));
+      alert(`✓ ${res.src}: dt=${res.dt} ps × ${res.ntw} steps = ${res.ns} ns/frame.\nThe RMSD / distance / H-bond time axes are now in ns.`);
+    } else {
+      alert(`Could not find the time step in ${f.name}.\n\nExpected your AMBER input (dt=… , ntwx=…) or GROMACS .mdp (dt=… , nstxout-compressed=…).`);
+    }
+  };
+  r.readAsText(f); e.target.value='';
 }
 
 function normalizeRMSDValues(v, yUnit, filename){
