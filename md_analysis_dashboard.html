@@ -3138,11 +3138,11 @@ async function renderChartToCanvas(src, W, H, bg){
         legend:src.options.plugins?.legend?.display?{
           display:true,
           position: hasBand?'top':'bottom',         // band style → legend top (like the reference)
-          align: hasBand?'start':'center',
+          align:'center',                            // centered (not cramped against the y-axis)
           labels:{
             font:{...font,size:Math.round(13*sc)}, color:textC,
             boxWidth:Math.round(40*sc), boxHeight:Math.round(3*sc),   // thin line-style marker
-            padding:Math.round(18*sc), usePointStyle:false,
+            padding:Math.round(20*sc), usePointStyle:false,
             filter: hasBand?legFilter:undefined
           }
         }:{display:false}
