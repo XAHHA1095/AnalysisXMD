@@ -455,7 +455,7 @@ input[type=range].traj-slider{width:180px}
           </div>
           <div class="ctrl-group">
             <span class="ctrl-label">ns / frame:</span>
-            <input type="number" id="traj-dt" value="" placeholder="frame #" step="0.1" min="0" style="width:78px" title="Leave blank to use the frame number on the x-axis">
+            <input type="number" id="traj-dt" value="" placeholder="frame #" step="0.001" min="0" style="width:78px" oninput="setNsPerFrame(this.value)" title="ns per frame for the computed analyses. Auto-filled from the trajectory when available; leave blank to use the frame number.">
           </div>
           <div class="ctrl-group">
             <span class="ctrl-label">Reference frame:</span>
@@ -1747,7 +1747,7 @@ function reapplyTimeAll(){
 }
 function setNsPerFrame(v){
   NS_PER_FRAME = parseFloat(v)||0;
-  ['rmsd-nsframe','dist-nsframe','hbcount-nsframe'].forEach(id=>{const e=document.getElementById(id); if(e&&e.value!=v) e.value=v;});
+  ['rmsd-nsframe','dist-nsframe','hbcount-nsframe','traj-dt'].forEach(id=>{const e=document.getElementById(id); if(e&&e.value!=v) e.value=v;});
   reapplyTimeAll();
 }
 function setMDEngine(v){
@@ -5512,19 +5512,24 @@ function computeTrajRMSD(){
   const info=document.getElementById('traj-analysis-info');
   if(idx.length<3){ info.textContent='⚠ Selection has <3 atoms.'; info.style.color='var(--amber)'; return; }
   const refF=Math.min(Math.max(0,parseInt(document.getElementById('traj-ref').value)||0), td.nFrames-1);
-  const dt=parseFloat(document.getElementById('traj-dt').value);
-  const useDt=isFinite(dt)&&dt>0;
+  // The panel's ns/frame becomes the global time-step so every tab stays in sync.
+  const pdt=parseFloat(document.getElementById('traj-dt').value);
+  if(isFinite(pdt)&&pdt>0){ NS_PER_FRAME=pdt; ['rmsd-nsframe','dist-nsframe','hbcount-nsframe'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=pdt;}); }
   info.textContent=`Computing RMSD over ${td.nFrames} frames (${idx.length} atoms)…`; info.style.color='var(--text3)';
   const ref=centerSelCoords(td.coords(refF), idx);
-  const pts=[];
+  const rmsdArr=[];
   for(let f=0; f<td.nFrames; f++){
     const mob=centerSelCoords(td.coords(f), idx);
-    pts.push({x: useDt?+(f*dt).toFixed(4):f, y:+kabsch(ref,mob).rmsd.toFixed(4)});
+    rmsdArr.push(+kabsch(ref,mob).rmsd.toFixed(4));
   }
-  state.rmsd={pts, real:true, fname:'Trajectory RMSD (computed)'};
+  // Store raw frame indices so the per-tab "ns/frame" / "⏱ auto" controls apply too.
+  const rawX=Array.from({length:td.nFrames},(_,f)=>f+1);
+  const tt=normalizeTimeValues(rawX,'auto','computed');
+  state.rmsd={pts: rawX.map((x,i)=>({x:tt.values[i], y:rmsdArr[i]})), real:true,
+              fname:'Trajectory RMSD (computed)', rawX, xUnit:'auto', xkind:tt.kind};
   document.getElementById('rmsd-chart-title').textContent='Trajectory RMSD (computed in-browser)';
-  renderRMSD(); showStats('rmsd', pts.map(p=>p.y),'Å');
-  info.textContent=`✓ RMSD computed (ref frame ${refF}). Opened in the RMSD tab.`; info.style.color='var(--green)';
+  renderRMSD(); showStats('rmsd', rmsdArr,'Å');
+  info.textContent=`✓ RMSD computed from ${td.nFrames} frames (ref ${refF}). On the RMSD tab set “ns / frame” to scale the time axis.`; info.style.color='var(--green)';
   switchTabByName('rmsd');
 }
 
