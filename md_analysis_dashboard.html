@@ -305,6 +305,16 @@ input[type=range].traj-slider{width:180px}
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
+    <div class="ctrl-group" title="Font size for all chart axes, ticks and legends (screen + exported figures)">
+      <span class="ctrl-label">Figure font:</span>
+      <select id="font-scale" onchange="setFontScale(this.value)">
+        <option value="0.85">Small</option>
+        <option value="1" selected>Normal</option>
+        <option value="1.2">Large</option>
+        <option value="1.4">X-Large</option>
+        <option value="1.7">XX-Large</option>
+      </select>
+    </div>
     <button class="btn" id="fig-theme-btn" onclick="setFigureTheme(!FIG_WHITE)" title="Preview figures on white background (matches the downloaded image)">☀ Light figures</button>
     <div id="ff-badge" class="badge-ff">Protein–Ligand MD</div>
   </div>
@@ -2184,8 +2194,13 @@ function exportMultiCSV(){
   });
   dlBlob(csv,'text/csv','multi_rmsd_raw.csv');
 }
-// Clean sans-serif for axis titles/ticks (academic figure convention)
-const CHART_FONT={family:"'Helvetica Neue', Helvetica, Arial, sans-serif",size:12};
+// Global, user-adjustable figure font scale. fs(px) scales a base size.
+let FONT_SCALE=1;
+function fs(px){ return Math.max(6, Math.round(px*FONT_SCALE)); }
+// Clean sans-serif for axis titles/ticks (academic figure convention). size is a
+// getter so it always reflects the current FONT_SCALE.
+const CHART_FONT={family:"'Helvetica Neue', Helvetica, Arial, sans-serif", get size(){ return fs(13); }};
+function setFontScale(v){ FONT_SCALE=parseFloat(v)||1; rerenderAll(); }
 
 // Left-to-right "draw" reveal: the curve is revealed from the y-axis to the end
 // of the x-axis (nicer than the default bottom-up grow). Driven by chart.$sweep
@@ -2258,7 +2273,7 @@ function linearXAxis(pts, label){
     type:'linear', min:mn, max:mx,            // tight fit — the line spans the full x-axis
     title:{display:true,text:label||'Time (ns)',color:TEXT_CLR,font:CHART_FONT,padding:{top:6}},
     afterBuildTicks: axis => { axis.ticks = tickVals.map(v=>({value:v})); },
-    ticks:{color:TICK_CLR,font:{size:10},autoSkip:false,maxRotation:0,callback:(v)=>fmtTick(v)},
+    ticks:{color:TICK_CLR,font:{size:fs(11)},autoSkip:false,maxRotation:0,callback:(v)=>fmtTick(v)},
     grid:{color:GRID_CLR},border:{color:AXIS_CLR}
   };
 }
@@ -2266,7 +2281,7 @@ function linearXAxis(pts, label){
 function yAxisOpts(label){
   return{
     title:{display:true,text:label,color:TEXT_CLR,font:CHART_FONT,padding:{bottom:6}},
-    ticks:{color:TICK_CLR,font:{size:10}},
+    ticks:{color:TICK_CLR,font:{size:fs(11)}},
     grid:{color:GRID_CLR},border:{color:AXIS_CLR}
   };
 }
@@ -2302,7 +2317,7 @@ function renderRMSD(){
       data:{datasets:bandDatasets(state.rmsd.pts, win, color, 'RMSD (mean ± SD)')},
       options:{
         responsive:true,maintainAspectRatio:false,animation:false,
-        plugins:{legend:{display:true,position:'top',align:'center',labels:{color:TEXT_CLR,font:{size:11},filter:legFilter,boxHeight:3,padding:14}},tooltip:{enabled:true}},
+        plugins:{legend:{display:true,position:'top',align:'center',labels:{color:TEXT_CLR,font:{size:fs(12)},filter:legFilter,boxHeight:3,padding:14}},tooltip:{enabled:true}},
         scales:{x:xax, y:yax}
       }
     });
@@ -2509,8 +2524,8 @@ function renderRMSDBox(){
       responsive:true,maintainAspectRatio:false,animation:false,
       plugins:{legend:{display:false},tooltip:{enabled:true}},
       scales:{
-        x:{ticks:{color:TICK_CLR,font:{size:10}},grid:{display:false},border:{color:AXIS_CLR}},
-        y:{min:0,title:{display:true,text:'RMSD (Å)',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:10}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
+        x:{ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{display:false},border:{color:AXIS_CLR}},
+        y:{min:0,title:{display:true,text:'RMSD (Å)',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
       }
     }
   });
@@ -2537,10 +2552,10 @@ function renderRMSF(){
     type:'bar',data:{labels:state.rmsf.series[0].res,datasets},
     options:{
       responsive:true,maintainAspectRatio:false,animation:false,
-      plugins:{legend:{display:state.rmsf.series.length>1||showLine,labels:{color:TEXT_CLR,font:{size:11}}}},
+      plugins:{legend:{display:state.rmsf.series.length>1||showLine,labels:{color:TEXT_CLR,font:{size:fs(12)}}}},
       scales:{
         x:{title:{display:true,text:'Residue',color:TEXT_CLR,font:CHART_FONT},
-           ticks:{color:TICK_CLR,maxTicksLimit:18,font:{size:10}},grid:{display:false},border:{color:AXIS_CLR}},
+           ticks:{color:TICK_CLR,maxTicksLimit:18,font:{size:fs(11)}},grid:{display:false},border:{color:AXIS_CLR}},
         y:yAxisOpts('RMSF (Å)')
       }
     }
@@ -2595,14 +2610,14 @@ function renderPCA(){
     type:'scatter',data:{datasets},
     options:{
       responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:ids.length>1,labels:{color:TEXT_CLR,font:{size:11},boxWidth:10}}},
+      plugins:{legend:{display:ids.length>1,labels:{color:TEXT_CLR,font:{size:fs(12)},boxWidth:10}}},
       scales:{
         x:{type:'linear',min:Math.min(...xVals),max:Math.max(...xVals),
            title:{display:true,text:'PC1 (Å)',color:TEXT_CLR,font:CHART_FONT},
-           ticks:{color:TICK_CLR,font:{size:10}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}},
+           ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}},
         y:{type:'linear',min:Math.min(...yVals),max:Math.max(...yVals),
            title:{display:true,text:'PC2 (Å)',color:TEXT_CLR,font:CHART_FONT},
-           ticks:{color:TICK_CLR,font:{size:10}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
+           ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
       }
     }
   });
@@ -2630,7 +2645,7 @@ function renderDist(){
     type:'line',data:{datasets},
     options:{
       responsive:true,maintainAspectRatio:false,animation:false,
-      plugins:{legend:{display:true,labels:{color:TEXT_CLR,font:{size:11},boxWidth:12}}},
+      plugins:{legend:{display:true,labels:{color:TEXT_CLR,font:{size:fs(12)},boxWidth:12}}},
       scales:{
         x:linearXAxis(allPts, timeAxisLabel(state.dist.xkind)),
         y:yAxisOpts('Distance (Å)')
@@ -2759,8 +2774,8 @@ function renderHBTable(){
       layout:{padding:{top:18}},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw}% occupancy`}}},
       scales:{
-        x:{title:{display:true,text:'Protein residue',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:10},maxRotation:55,minRotation:0},grid:{display:false},border:{color:AXIS_CLR}},
-        y:{title:{display:true,text:'Occupancy (%)',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:10}},grid:{color:GRID_CLR},border:{color:AXIS_CLR},min:0,max:yMax}
+        x:{title:{display:true,text:'Protein residue',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:fs(11)},maxRotation:55,minRotation:0},grid:{display:false},border:{color:AXIS_CLR}},
+        y:{title:{display:true,text:'Occupancy (%)',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR},min:0,max:yMax}
       }
     }
   });
@@ -2878,7 +2893,7 @@ function renderMulti(){
       type:'line', data:{datasets},
       options:{
         responsive:true,maintainAspectRatio:false,animation:false,
-        plugins:{legend:{display:true,position:'top',align:'start',labels:{color:TEXT_CLR,font:{size:11},boxWidth:14,boxHeight:3,filter:legFilter}}},
+        plugins:{legend:{display:true,position:'top',align:'start',labels:{color:TEXT_CLR,font:{size:fs(12)},boxWidth:14,boxHeight:3,filter:legFilter}}},
         scales:{x:linearXAxis(allPts, timeAxisLabel(state.multi.series[0]?.xkind)),y:yax}
       }
     });
@@ -2926,9 +2941,9 @@ function renderMultiBox(ctx){
       responsive:true,maintainAspectRatio:false,animation:false,
       plugins:{legend:{display:false},tooltip:{enabled:true}},
       scales:{
-        x:{ticks:{color:TICK_CLR,font:{size:11},maxRotation:35,minRotation:25},grid:{display:false},border:{color:AXIS_CLR}},
+        x:{ticks:{color:TICK_CLR,font:{size:fs(12)},maxRotation:35,minRotation:25},grid:{display:false},border:{color:AXIS_CLR}},
         y:{min:0,title:{display:true,text:`RMSD (${uLabel})`,color:TEXT_CLR,font:CHART_FONT},
-           ticks:{color:TICK_CLR,font:{size:10}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
+           ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
       }
     }
   });
@@ -2985,17 +3000,17 @@ function renderMultiDensity(ctx){
     options:{
       responsive:true,maintainAspectRatio:false,animation:false,
       plugins:{
-        legend:{display:true,labels:{color:TEXT_CLR,font:{size:11},boxWidth:12}},
+        legend:{display:true,labels:{color:TEXT_CLR,font:{size:fs(12)},boxWidth:12}},
         title:{display:true,text:'RMSD Density Distribution',color:TEXT_CLR,font:{family:"'JetBrains Mono',monospace",size:12}}
       },
       scales:{
         x:{type:'linear',min:0,max:hiBound,
            title:{display:true,text:`RMSD (${unitLabel})`,color:TEXT_CLR,font:CHART_FONT,padding:{top:6}},
-           ticks:{color:TICK_CLR,font:{size:10},stepSize:xStep,callback:fmtAxis},
+           ticks:{color:TICK_CLR,font:{size:fs(11)},stepSize:xStep,callback:fmtAxis},
            grid:{color:GRID_CLR},border:{color:AXIS_CLR}},
         y:{min:0,max:yMax,
            title:{display:true,text:'Probability Density',color:TEXT_CLR,font:CHART_FONT,padding:{bottom:6}},
-           ticks:{color:TICK_CLR,font:{size:10},stepSize:yStep,callback:fmtAxis},
+           ticks:{color:TICK_CLR,font:{size:fs(11)},stepSize:yStep,callback:fmtAxis},
            grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
       }
     }
@@ -3080,7 +3095,7 @@ async function renderChartToCanvas(src, W, H, bg){
   if(bg!=='transparent'){ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);}
   // Scale-based font sizes (render at size, not upscale)
   const sc=W/900;
-  const labelSz=Math.round(17*sc), tickSz=Math.round(13*sc), lineW=Math.max(1.5,1.25*sc);
+  const labelSz=Math.round(17*sc*FONT_SCALE), tickSz=Math.round(13*sc*FONT_SCALE), lineW=Math.max(1.5,1.25*sc);
   const isDark=bg==='#05080f';
   const textC=isDark?'#e2e8f0':'#111827';
   const gridC='transparent';                                   // academic: no gridlines in the export
@@ -3140,7 +3155,7 @@ async function renderChartToCanvas(src, W, H, bg){
           position: hasBand?'top':'bottom',         // band style → legend top (like the reference)
           align:'center',                            // centered (not cramped against the y-axis)
           labels:{
-            font:{...font,size:Math.round(13*sc)}, color:textC,
+            font:{...font,size:Math.round(13*sc*FONT_SCALE)}, color:textC,
             boxWidth:Math.round(40*sc), boxHeight:Math.round(3*sc),   // thin line-style marker
             padding:Math.round(20*sc), usePointStyle:false,
             filter: hasBand?legFilter:undefined
@@ -3209,6 +3224,7 @@ async function exportRMSDCombined(W, H, bg){
 function exportSVG(key, bg){
   const chart=charts[key];
   if(!chart){alert('No data to export as SVG.');return;}
+  const sf=px=>Math.round(px*FONT_SCALE);   // scale SVG font sizes by the global figure font scale
   // Match the proportion chosen in the export modal (wide 2:1 by default)
   const resVal=document.getElementById('exp-res')?.value||'2400x1160';
   const [rw,rh]=resVal.split('x').map(Number);
@@ -3238,7 +3254,7 @@ function exportSVG(key, bg){
   for(const t of (scY.ticks||[]).map(t=>t.value)){
     const sy=toY(t);
     grid+=`<line x1="${(x0-5).toFixed(1)}" y1="${sy.toFixed(1)}" x2="${x0.toFixed(1)}" y2="${sy.toFixed(1)}" stroke="${axColor}" stroke-width="1.1"/>
-    <text x="${(x0-10).toFixed(0)}" y="${(sy+5).toFixed(0)}" fill="${txtC}" font-size="13" text-anchor="end">${isFinite(t)?(+t.toFixed(2)):t}</text>`;
+    <text x="${(x0-10).toFixed(0)}" y="${(sy+5).toFixed(0)}" fill="${txtC}" font-size="${sf(13)}" text-anchor="end">${isFinite(t)?(+t.toFixed(2)):t}</text>`;
   }
   const isBar=chart.config.type==='bar';
   if(isBar){
@@ -3246,14 +3262,14 @@ function exportSVG(key, bg){
     const labels=chart.data.labels||[], nb=labels.length;
     labels.forEach((lb,i)=>{
       const xC=pad.left+(i+0.5)*(pW/Math.max(nb,1)), yy=yB+18;
-      grid+=`<text x="${xC.toFixed(0)}" y="${yy.toFixed(0)}" fill="${txtC}" font-size="12" text-anchor="end" transform="rotate(-45 ${xC.toFixed(0)} ${yy.toFixed(0)})">${lb}</text>`;
+      grid+=`<text x="${xC.toFixed(0)}" y="${yy.toFixed(0)}" fill="${txtC}" font-size="${sf(12)}" text-anchor="end" transform="rotate(-45 ${xC.toFixed(0)} ${yy.toFixed(0)})">${lb}</text>`;
     });
   } else {
     const step=scX.ticks?.[1]?.value&&scX.ticks?.[0]?.value?scX.ticks[1].value-scX.ticks[0].value:autoStep(xMax-xMin);
     for(let x=Math.ceil(xMin/step)*step;x<=xMax+0.001;x+=step){
       const sx=toX(x);
       grid+=`<line x1="${sx.toFixed(1)}" y1="${yB.toFixed(1)}" x2="${sx.toFixed(1)}" y2="${(yB+5).toFixed(1)}" stroke="${axColor}" stroke-width="1.1"/>
-      <text x="${sx.toFixed(0)}" y="${(yB+22).toFixed(0)}" fill="${txtC}" font-size="13" text-anchor="middle">${+x.toFixed(2)}</text>`;
+      <text x="${sx.toFixed(0)}" y="${(yB+22).toFixed(0)}" fill="${txtC}" font-size="${sf(13)}" text-anchor="middle">${+x.toFixed(2)}</text>`;
     }
   }
 
@@ -3291,7 +3307,7 @@ function exportSVG(key, bg){
         const yT=toY(v),yB=toY(Math.max(yMin,0));
         const fc=Array.isArray(ds.backgroundColor)?ds.backgroundColor[i]||(pal[di%pal.length]+'cc'):stroke+'cc';
         paths+=`<rect x="${(xC-bw/2).toFixed(1)}" y="${yT.toFixed(1)}" width="${bw.toFixed(1)}" height="${(yB-yT).toFixed(1)}" fill="${fc}" rx="2"/>`;
-        if(isFinite(v)&&v>0) paths+=`<text x="${xC.toFixed(1)}" y="${(yT-5).toFixed(1)}" fill="${fc}" font-size="12" font-weight="bold" text-anchor="middle">${(+v).toFixed(1)}%</text>`;
+        if(isFinite(v)&&v>0) paths+=`<text x="${xC.toFixed(1)}" y="${(yT-5).toFixed(1)}" fill="${fc}" font-size="${sf(12)}" font-weight="bold" text-anchor="middle">${(+v).toFixed(1)}%</text>`;
       });
     } else if(srcType==='scatter'){
       for(const p of dpts){
@@ -3350,8 +3366,8 @@ ${grid}
 ${paths}
 <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${pad.top+pH}" stroke="${axC}" stroke-width="1.3"/>
 <line x1="${pad.left}" y1="${pad.top+pH}" x2="${pad.left+pW}" y2="${pad.top+pH}" stroke="${axC}" stroke-width="1.3"/>
-<text x="${(pad.left+pW/2).toFixed(0)}" y="${(pad.top+pH+50).toFixed(0)}" fill="${txtC}" font-size="17" font-weight="bold" text-anchor="middle">${xLbl}</text>
-<text x="22" y="${(pad.top+pH/2).toFixed(0)}" fill="${txtC}" font-size="17" font-weight="bold" text-anchor="middle" transform="rotate(-90,22,${(pad.top+pH/2).toFixed(0)})">${yLbl}</text>
+<text x="${(pad.left+pW/2).toFixed(0)}" y="${(pad.top+pH+50).toFixed(0)}" fill="${txtC}" font-size="${sf(17)}" font-weight="bold" text-anchor="middle">${xLbl}</text>
+<text x="22" y="${(pad.top+pH/2).toFixed(0)}" fill="${txtC}" font-size="${sf(17)}" font-weight="bold" text-anchor="middle" transform="rotate(-90,22,${(pad.top+pH/2).toFixed(0)})">${yLbl}</text>
 ${legend}
 </svg>`;
   dlBlob(svg,'image/svg+xml',key+'.svg');
@@ -5338,7 +5354,7 @@ function renderRg(){
     options:{
       animation:false, responsive:true, maintainAspectRatio:false,
       plugins:{legend:{display:showCols.length>1||pub,
-        labels:{filter:l=>!l.text.startsWith('_'),color:TEXT_CLR,font:{size:11}}},
+        labels:{filter:l=>!l.text.startsWith('_'),color:TEXT_CLR,font:{size:fs(12)}}},
         tooltip:{callbacks:{label:d=>`${d.dataset.label}: ${(+d.raw.y).toFixed(3)} Å`}}},
       scales:{
         x:{type:'linear',title:{display:true,text:`Time (${unitX})`,color:TEXT_CLR},
