@@ -8,7 +8,7 @@
 
 A lightweight, **single-file** web dashboard for analyzing and visualizing **Molecular Dynamics (MD)** simulations of protein–ligand systems. Runs entirely in your browser — **no installation, no server, no Python environment required**. Just open the HTML file (or use the link above).
 
-Built to read native output from **GROMACS** and **AMBER** (cpptraj), produce **publication-quality figures (300–600 DPI)**, and interactively visualize trajectories.
+Built to read native output from **GROMACS**, **AMBER** (cpptraj) and **NAMD/CHARMM** (PSF + DCD), produce **publication-quality figures (300–600 DPI)**, and interactively visualize trajectories.
 
 ---
 
@@ -125,8 +125,10 @@ time_ns,r1,r2,r3
 
 Open the **"Molecular Dynamics Trajectory Viewer"** panel in the RMSD tab.
 
-1. **Load Topology / Structure**: `.gro`, `.pdb`, `.prmtop`, `.psf`, `.mol2`.
-2. **Load Trajectory** and animate.
+1. **Load Topology / Structure**: `.gro`, `.pdb`, `.prmtop` (AMBER), `.psf` (CHARMM/NAMD), `.mol2`, `.cif`.
+2. **Load Trajectory** and animate: `.nc` (AMBER), `.dcd` (NAMD/CHARMM), `.xtc` / `.trr` (GROMACS), or a multi-frame `.pdb`.
+
+> **NAMD / CHARMM workflow:** load your `.psf` topology, then the matching `.dcd` trajectory — both are parsed **directly in the browser** (no MDsrv/server needed). To put the time axis in ns, click **📄 from .in/.mdp** and select your NAMD `.conf`; it reads `timestep × dcdfreq` (timestep in fs).
 
 ### Recommended: convert your trajectory to a multi-frame PDB
 Browser libraries cannot stream binary `.xtc` / `.nc` reliably without a dedicated server. The most robust path is a multi-frame PDB:

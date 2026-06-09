@@ -353,11 +353,11 @@ input[type=range].traj-slider{width:180px}
       <div class="viewer-btns">
         <button class="vbtn" id="btn-topo" onclick="document.getElementById('file-topo').click()">
           📄 Load Topology / Structure
-          <small>.pdb .gro .mol2 · AMBER .prmtop/.parm7 · .psf</small>
+          <small>.pdb .gro .mol2 · AMBER .prmtop · CHARMM/NAMD .psf</small>
         </button>
         <button class="vbtn" id="btn-traj" onclick="document.getElementById('file-traj').click()">
           🎞 Load Coordinates / Trajectory
-          <small>.nc (AMBER) · multi-frame .pdb · .dcd .trr .xtc</small>
+          <small>.nc (AMBER) · .dcd (NAMD/CHARMM) · multi-frame .pdb · .trr .xtc</small>
         </button>
       </div>
       <input type="file" id="file-topo" accept=".gro,.pdb,.prmtop,.parm7,.top,.psf,.mol2,.cif,.mmcif" onchange="loadTopoFile(event)">
@@ -375,7 +375,7 @@ input[type=range].traj-slider{width:180px}
         <div id="ngl-placeholder">
           <div style="font-size:36px">🧬</div>
           <div>Load a topology/structure file to visualize</div>
-          <div style="color:var(--text3);font-size:10px">AMBER: load <b>.prmtop</b> then <b>.nc</b> · GROMACS: load <b>.gro/.pdb</b> then trajectory</div>
+          <div style="color:var(--text3);font-size:10px">AMBER: load <b>.prmtop</b> then <b>.nc</b> · GROMACS: <b>.gro/.pdb</b> then traj · NAMD/CHARMM: <b>.psf</b> then <b>.dcd</b></div>
         </div>
       </div>
 
@@ -435,8 +435,9 @@ input[type=range].traj-slider{width:180px}
         <h4>📈 Compute analysis from trajectory (in-browser)</h4>
         <p class="repframe-desc">
           Computes RMSD (Kabsch-aligned), radius of gyration, RMSF and an averaged contact map
-          directly from the loaded trajectory — works for <b>AMBER</b> (.prmtop + .nc) and
-          <b>GROMACS</b> (.gro/.pdb + .xtc/.trr); NGL normalises all coordinates to Å. The
+          directly from the loaded trajectory — works for <b>AMBER</b> (.prmtop + .nc),
+          <b>GROMACS</b> (.gro/.pdb + .xtc/.trr) and <b>NAMD/CHARMM</b> (.psf + .dcd); NGL
+          normalises all coordinates to Å. The
           results open in their tabs with the usual plotting/export options.
           <b>PBC note:</b> if your solute crosses the periodic box edge, image it first —
           AMBER: cpptraj <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">autoimage</code>,
@@ -818,9 +819,9 @@ input[type=range].traj-slider{width:180px}
     <div class="ctrl-group" id="rmsd-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
       <input type="number" id="rmsd-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
-      <button class="btn" onclick="document.getElementById('mdin-file').click()" title="Calculate ns/frame from your MD input file (AMBER .in: dt×ntwx, or GROMACS .mdp: dt×nstxout) — the exact, reliable way" style="padding:4px 9px">📄 from .in/.mdp</button>
+      <button class="btn" onclick="document.getElementById('mdin-file').click()" title="Calculate ns/frame from your MD input file — AMBER .in (dt×ntwx), GROMACS .mdp (dt×nstxout) or NAMD .conf (timestep×dcdfreq) — the exact, reliable way" style="padding:4px 9px">📄 from .in/.mdp</button>
       <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ from traj</button>
-      <input type="file" id="mdin-file" accept=".in,.mdin,.mdp,.txt,.inp" onchange="loadMDInputFile(event)" style="display:none">
+      <input type="file" id="mdin-file" accept=".in,.mdin,.mdp,.txt,.inp,.namd,.conf" onchange="loadMDInputFile(event)" style="display:none">
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Smoothing:</span>
@@ -1066,7 +1067,7 @@ time_ns,rmsd_A
     <div class="ctrl-group" id="dist-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
       <input type="number" id="dist-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
-      <button class="btn" onclick="document.getElementById('mdin-file').click()" title="Calculate ns/frame from your MD input file (AMBER .in or GROMACS .mdp)" style="padding:4px 9px">📄 from .in/.mdp</button>
+      <button class="btn" onclick="document.getElementById('mdin-file').click()" title="Calculate ns/frame from your MD input file (AMBER .in, GROMACS .mdp or NAMD .conf)" style="padding:4px 9px">📄 from .in/.mdp</button>
       <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ from traj</button>
     </div>
     <div class="ctrl-group">
@@ -1122,7 +1123,7 @@ time_ns,rmsd_A
     <div class="ctrl-group" id="hbcount-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
       <input type="number" id="hbcount-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
-      <button class="btn" onclick="document.getElementById('mdin-file').click()" title="Calculate ns/frame from your MD input file (AMBER .in or GROMACS .mdp)" style="padding:4px 9px">📄 from .in/.mdp</button>
+      <button class="btn" onclick="document.getElementById('mdin-file').click()" title="Calculate ns/frame from your MD input file (AMBER .in, GROMACS .mdp or NAMD .conf)" style="padding:4px 9px">📄 from .in/.mdp</button>
       <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ from traj</button>
     </div>
     <div class="ctrl-group">
@@ -1861,7 +1862,7 @@ function applyDetectedTime(){
 function applyDetectedTimeUI(){
   const v=applyDetectedTime();
   if(v){ alert(`Detected ${v} ns/frame from the loaded trajectory — the time axis has been updated.`); }
-  else { alert('No per-frame time found.\n\nLoad your trajectory (.xtc reliably, or .nc) in the 3D viewer first. AMBER .nc files sometimes store no time — then use the "📄 .in/.mdp" button or enter ns/frame manually (= ntwx×dt).'); }
+  else { alert('No per-frame time found.\n\nLoad your trajectory (.xtc reliably, or .nc/.dcd) in the 3D viewer first. AMBER .nc / NAMD .dcd files sometimes store no usable time — then use the "📄 .in/.mdp" button (also reads NAMD .conf) or enter ns/frame manually.'); }
 }
 
 // Compute ns/frame straight from the MD INPUT file (which always has dt & the
@@ -1875,6 +1876,12 @@ function parseMDInputForNsPerFrame(text){
   if(ntw==null){ m=t.match(/nstxout[-_]compressed\s*=\s*([0-9]+)/); if(m){ ntw=parseInt(m[1]); src='GROMACS (dt×nstxout-compressed)'; } }
   if(ntw==null){ m=t.match(/\bnstxout\s*=\s*([0-9]+)/);   if(m){ ntw=parseInt(m[1]); src='GROMACS (dt×nstxout)'; } }
   if(dt>0 && ntw>0) return { ns:+(dt*ntw/1000).toPrecision(6), dt, ntw, src };
+  // NAMD config: "timestep <fs>" + "dcdfreq <steps>" (whitespace-separated, no '=').
+  // NAMD's timestep is in femtoseconds → ns/frame = timestep(fs) × dcdfreq / 1e6.
+  let ts=null, df=null;
+  m=t.match(/\btimestep\s+([0-9.]+)/);  if(m) ts=parseFloat(m[1]);
+  m=t.match(/\bdcdfreq\s+([0-9]+)/);     if(m) df=parseInt(m[1]);
+  if(ts>0 && df>0) return { ns:+(ts*df/1e6).toPrecision(6), dt:+(ts/1000).toPrecision(4), ntw:df, src:'NAMD (timestep×dcdfreq)' };
   return null;
 }
 function loadMDInputFile(e){
@@ -1885,7 +1892,7 @@ function loadMDInputFile(e){
     if(res){ setNsPerFrame(String(res.ns));
       alert(`✓ ${res.src}: dt=${res.dt} ps × ${res.ntw} steps = ${res.ns} ns/frame.\nThe RMSD / distance / H-bond time axes are now in ns.`);
     } else {
-      alert(`Could not find the time step in ${f.name}.\n\nExpected your AMBER input (dt=… , ntwx=…) or GROMACS .mdp (dt=… , nstxout-compressed=…).`);
+      alert(`Could not find the time step in ${f.name}.\n\nExpected AMBER input (dt=… , ntwx=…), GROMACS .mdp (dt=… , nstxout-compressed=…) or NAMD .conf (timestep … , dcdfreq …).`);
     }
   };
   r.readAsText(f); e.target.value='';
@@ -3473,9 +3480,18 @@ function loadTopoFile(e){
       btn.innerHTML=`✓ ${file.name.substring(0,16)}<small>topology · ${n} atoms — load coords ↓</small>`;
       btn.classList.add('loaded');
       const note=document.getElementById('traj-note');
-      note.innerHTML=`<strong>✓ Topology loaded (${n} atoms) — no coordinates yet.</strong><br>`+
-        `Now load the <b>coordinates / trajectory</b> in the slot above. An AMBER <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">.nc</code> (NetCDF) trajectory works directly in the browser.<br>`+
-        `ASCII <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">.mdcrd/.inpcrd/.rst7</code> are <b>not</b> supported here — convert with cpptraj: <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">cpptraj -p sys.prmtop -y in.mdcrd -x traj.nc</code>`;
+      const cs='style="background:var(--bg3);padding:1px 5px;border-radius:3px"';
+      if(ext==='psf'){
+        // CHARMM/NAMD topology — the matching coordinates come from a .dcd.
+        note.innerHTML=`<strong>✓ CHARMM/NAMD topology loaded (${n} atoms) — no coordinates yet.</strong><br>`+
+          `Now load the matching <b><code ${cs}>.dcd</code></b> trajectory in the slot above — NAMD/CHARMM DCD files are read directly in the browser. A multi-frame <code ${cs}>.pdb</code> works too.<br>`+
+          `The DCD must contain the same number of atoms as this PSF (${n}).`;
+      } else {
+        // AMBER topology — coordinates come from a NetCDF .nc.
+        note.innerHTML=`<strong>✓ Topology loaded (${n} atoms) — no coordinates yet.</strong><br>`+
+          `Now load the <b>coordinates / trajectory</b> in the slot above. An AMBER <code ${cs}>.nc</code> (NetCDF) trajectory works directly in the browser.<br>`+
+          `ASCII <code ${cs}>.mdcrd/.inpcrd/.rst7</code> are <b>not</b> supported here — convert with cpptraj: <code ${cs}>cpptraj -p sys.prmtop -y in.mdcrd -x traj.nc</code>`;
+      }
       note.style.display='block';
       return;
     }
@@ -3513,7 +3529,7 @@ function loadTopoFile(e){
   }).catch(err=>{
     btn.innerHTML=`📄 Load Topology / Structure<small>error loading</small>`;
     console.error('Topology load error:',err);
-    alert('Could not load structure:\n'+err.message+'\n\nSupported: .pdb .gro .mol2 .cif · AMBER .prmtop/.parm7 · CHARMM .psf\n\nNote: .prmtop is topology only — after it loads, also load a .nc trajectory for coordinates.');
+    alert('Could not load structure:\n'+err.message+'\n\nSupported: .pdb .gro .mol2 .cif · AMBER .prmtop/.parm7 · CHARMM/NAMD .psf\n\nNote: .prmtop and .psf are topology only — after one loads, also load coordinates (AMBER .nc, or NAMD/CHARMM .dcd).');
   });
 }
 
