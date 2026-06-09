@@ -816,6 +816,7 @@ input[type=range].traj-slider{width:180px}
     <div class="ctrl-group" id="rmsd-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
       <input type="number" id="rmsd-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
+      <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ auto</button>
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Smoothing:</span>
@@ -1066,6 +1067,7 @@ time_ns,rmsd_A
     <div class="ctrl-group" id="dist-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
       <input type="number" id="dist-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
+      <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ auto</button>
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Threshold (Å):</span>
@@ -1120,6 +1122,7 @@ time_ns,rmsd_A
     <div class="ctrl-group" id="hbcount-nsframe-group">
       <span class="ctrl-label">ns / frame:</span>
       <input type="number" id="hbcount-nsframe" value="" placeholder="frame#" step="0.001" min="0" style="width:80px" oninput="setNsPerFrame(this.value)" title="For frame-numbered (AMBER/cpptraj) files, enter your save interval in ns/frame to convert the x-axis to time. Leave blank to show the frame number.">
+      <button class="btn" onclick="applyDetectedTimeUI()" title="Read ns/frame from the trajectory loaded in the 3D viewer" style="padding:4px 9px">⏱ auto</button>
     </div>
     <div class="ctrl-group">
       <span class="ctrl-label">Smoothing:</span>
@@ -1756,6 +1759,27 @@ function setMDEngine(v){
   reapplyTimeAll();
 }
 function timeAxisLabel(kind){ return kind==='frame' ? 'Frame' : 'Time (ns)'; }
+
+// Read the per-frame time step (ns) from a trajectory loaded in the 3D viewer.
+// GROMACS .xtc/.trr store the time reliably; AMBER .nc when the time variable is
+// present. Trajectory time is in ps → divide by 1000. Returns ns/frame or null.
+function detectNsPerFrame(){
+  const f=trajFramesObj; if(!f) return null;
+  let dtPs = (typeof f.deltaTime==='number' && f.deltaTime>0) ? f.deltaTime
+           : (f.times && f.times.length>1 ? (f.times[1]-f.times[0]) : 0);
+  if(!(dtPs>0) || !isFinite(dtPs)) return null;
+  return dtPs/1000;
+}
+function applyDetectedTime(){
+  const ns=detectNsPerFrame();
+  if(ns && ns>0){ const v=+ns.toPrecision(4); setNsPerFrame(String(v)); return v; }
+  return null;
+}
+function applyDetectedTimeUI(){
+  const v=applyDetectedTime();
+  if(v){ alert(`Detected ${v} ns/frame from the loaded trajectory — the time axis has been updated.`); }
+  else { alert('No per-frame time found.\n\nLoad your trajectory (.xtc reliably, or .nc) in the 3D viewer first. AMBER .nc files sometimes store no time — then enter ns/frame manually (it is your save interval, e.g. ntwx×dt).'); }
+}
 
 function normalizeRMSDValues(v, yUnit, filename){
   // If header says nm → multiply by 10
@@ -3371,6 +3395,13 @@ function setupPlayer(trajComp, fname){
       try{ if(traj?.setFrame) traj.setFrame(0); }catch(_){}
       setTimeout(()=>{ if(nglTrajComp!==myTraj) return; try{ nglComponent.autoView(400); }catch(_){}
         document.getElementById('ngl-placeholder').style.display='none'; }, 350);
+      // Auto-detect ns/frame from the trajectory's per-frame time (only if the
+      // user has not entered one) and update the RMSD/distance/H-bond time axes.
+      if(NS_PER_FRAME<=0){
+        const dt=applyDetectedTime();
+        if(dt){ const n=document.getElementById('traj-note');
+          if(n){ n.innerHTML=`<strong>⏱ Auto-detected ${dt} ns/frame</strong> from this trajectory — the RMSD / distance / H-bond time axes are now in ns. Adjust the “ns / frame” field on those tabs if your analysis used a different stride.`; n.style.display='block'; } }
+      }
       if(fc===0) document.getElementById('frame-info').textContent='Frames not detected';
     }
   },200);
