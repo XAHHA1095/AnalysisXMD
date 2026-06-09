@@ -1629,6 +1629,7 @@ let exportKey = '';
 // NGL
 let nglStage = null, nglComponent = null, nglTrajComp = null;
 let trajFramesObj = null;   // NGL Frames object (NetCDF/binary trajectory) for in-browser analysis
+let trajRawBuffer = null, trajRawExt = '';   // raw bytes of the trajectory (to read NetCDF time directly)
 let isPlaying = false, playInterval = null, currentFrame = 0, totalFrames = 0;
 
 // ================================================================
@@ -1760,10 +1761,59 @@ function setMDEngine(v){
 }
 function timeAxisLabel(kind){ return kind==='frame' ? 'Frame' : 'Time (ns)'; }
 
-// Read the per-frame time step (ns) from a trajectory loaded in the 3D viewer.
-// GROMACS .xtc/.trr store the time reliably; AMBER .nc when the time variable is
-// present. Trajectory time is in ps → divide by 1000. Returns ns/frame or null.
+// Parse the AMBER/NetCDF 'time' variable directly from the raw bytes (classic
+// CDF-1 / 64-bit-offset CDF-2). Returns {t0, dt} in ps, or null. NGL's per-frame
+// time for .nc is unreliable, so we read it ourselves.
+function parseNetcdfTime(buf){
+  try{
+    const dv=new DataView(buf);
+    if(buf.byteLength<32 || dv.getUint8(0)!==67||dv.getUint8(1)!==68||dv.getUint8(2)!==70) return null; // 'CDF'
+    const ver=dv.getUint8(3); if(ver!==1 && ver!==2) return null;   // handle classic & 64-bit offset
+    let p=4;
+    const i32=()=>{const v=dv.getInt32(p,false);p+=4;return v;};
+    const u32=()=>{const v=dv.getUint32(p,false);p+=4;return v;};
+    const begin=()=>{ if(ver===2){const hi=dv.getUint32(p,false),lo=dv.getUint32(p+4,false);p+=8;return hi*4294967296+lo;} return u32(); };
+    const name=()=>{const n=i32();let s='';for(let k=0;k<n;k++)s+=String.fromCharCode(dv.getUint8(p+k));p+=n;while(p&3)p++;return s;};
+    const tsize={1:1,2:1,3:2,4:4,5:4,6:8};
+    const skipAtts=()=>{ const tag=i32(), num=i32(); if(tag===0&&num===0) return; for(let a=0;a<num;a++){ name(); const t=i32(); const ne=i32(); p+=(tsize[t]||1)*ne; while(p&3)p++; } };
+    u32();                                  // numrecs
+    let tag=i32(), num=i32();               // dim_list
+    const dims=[];
+    if(tag===0x0A){ for(let d=0;d<num;d++){ const nm=name(); const ln=i32(); dims.push({nm,len:ln}); } }
+    skipAtts();                             // global attributes
+    tag=i32(); num=i32();                   // var_list
+    if(tag!==0x0B) return null;
+    let timeBegin=null, timeRecord=false, timeType=5;
+    const recVars=[];
+    for(let v=0; v<num; v++){
+      const vname=name();
+      const nd=i32(); const dimids=[]; for(let k=0;k<nd;k++) dimids.push(i32());
+      skipAtts();
+      const nctype=i32(); const vsize=u32(); const vbeg=begin();
+      const isRec = dimids.length>0 && dims[dimids[0]] && dims[dimids[0]].len===0;  // first dim is the unlimited (frame) dim
+      if(isRec) recVars.push({vsize});
+      if(vname==='time'){ timeBegin=vbeg; timeRecord=isRec; timeType=nctype; }
+    }
+    if(timeBegin==null) return null;
+    const elem=tsize[timeType]||4;
+    const stride = timeRecord ? recVars.reduce((s,r)=>s+r.vsize,0) : elem;
+    const rd=o=> timeType===6 ? dv.getFloat64(o,false) : dv.getFloat32(o,false);
+    const t0=rd(timeBegin);
+    const t1=rd(timeBegin+stride);
+    const dt=t1-t0;
+    return {t0, dt};
+  }catch(e){ return null; }
+}
+
+// Read the per-frame time step (ns) from the loaded trajectory.
+//  • AMBER .nc → read the NetCDF 'time' variable directly (robust)
+//  • GROMACS .xtc/.trr → NGL exposes the time reliably
+// Trajectory time is in ps → divide by 1000. Returns ns/frame or null.
 function detectNsPerFrame(){
+  if(trajRawBuffer && ['nc','ncdf','nctraj','netcdf'].includes(trajRawExt)){
+    const nt=parseNetcdfTime(trajRawBuffer);
+    if(nt && isFinite(nt.dt) && nt.dt>0) return nt.dt/1000;
+  }
   const f=trajFramesObj; if(!f) return null;
   let dtPs = (typeof f.deltaTime==='number' && f.deltaTime>0) ? f.deltaTime
            : (f.times && f.times.length>1 ? (f.times[1]-f.times[0]) : 0);
@@ -3231,7 +3281,7 @@ function setNGLView(){
 function loadTopoFile(e){
   const file=e.target.files[0];if(!file)return;
   if(!nglStage) initNGL();
-  if(nglComponent){nglStage.removeComponent(nglComponent);nglComponent=null;nglTrajComp=null;trajFramesObj=null;stopPlayback();}
+  if(nglComponent){nglStage.removeComponent(nglComponent);nglComponent=null;nglTrajComp=null;trajFramesObj=null;trajRawBuffer=null;stopPlayback();}
   const btn=document.getElementById('btn-topo');
   btn.innerHTML=`⏳ Loading...<small>${file.name}</small>`;
   document.getElementById('player-bar').classList.remove('visible');
@@ -3358,6 +3408,10 @@ async function loadTrajFile(e){
   // NetCDF / binary trajectory (.nc .ncdf .nctraj .netcdf .dcd .trr .xtc):
   // NGL parses these client-side into a Frames object → addTrajectory.
   try{
+    // Keep the raw bytes for NetCDF so we can read the AMBER 'time' variable
+    // directly (NGL's per-frame time for .nc is often wrong).
+    trajRawExt=ext; trajRawBuffer=null;
+    if(['nc','ncdf','nctraj','netcdf'].includes(ext)){ try{ trajRawBuffer=await file.arrayBuffer(); }catch(_){} }
     const frames = await NGL.autoLoad(file,{ext});
     if(!frames) throw new Error('autoLoad returned null — format may not be supported');
     const tc = nglComponent.addTrajectory(frames);
