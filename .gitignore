@@ -32,3 +32,6 @@ charizard.png
 
 # Local validation scratch (PDBs are re-fetched from RCSB; see manuscript/validation/PROTOCOL.md)
 /validation/
+
+# Private: in-prep manuscript — kept local only, not published
+/manuscript/
