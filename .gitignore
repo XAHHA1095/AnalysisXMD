@@ -29,3 +29,6 @@ charizard.png
 # Temporary / export artifacts
 *.tmp
 *_*x*.png
+
+# Local validation scratch (PDBs are re-fetched from RCSB; see manuscript/validation/PROTOCOL.md)
+/validation/
