@@ -75,6 +75,11 @@ input[type=text]{font-family:var(--mono);font-size:12px;color:var(--text);backgr
 .replica-legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px}
 .rep-item{display:flex;align-items:center;gap:5px;font-size:11px;font-family:var(--mono);color:var(--text2)}
 .rep-dot{width:10px;height:3px;border-radius:2px}
+.rep-toggle{cursor:pointer;user-select:none;padding:2px 6px;border-radius:5px;transition:background .12s}
+.rep-toggle:hover{background:var(--bg3)}
+.rep-off{opacity:.42}
+.rep-off span{text-decoration:line-through}
+.rep-ctrl{gap:8px}
 .annotation-panel{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:12px;display:none}
 .annotation-panel.visible{display:block}
 .annotation-panel textarea{width:100%;font-family:var(--mono);font-size:11px;color:var(--text);background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:8px;resize:vertical;min-height:60px;outline:none;margin-top:6px}
@@ -1215,7 +1220,7 @@ time_ns,rmsd_A
 
 <!-- ================================================================ MULTI-REPLICA ================================================================ -->
 <div id="tab-multi" class="section">
-  <p style="font-size:13px;color:var(--text2);margin-bottom:18px">Select multiple RMSD files at once. Each file = one independent replica.</p>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:18px">Select multiple RMSD files at once. Each file = one independent replica. <b>Tip:</b> click a curve in the list below the controls to hide/show it. Each curve keeps its own fixed colour, so you can export one subset, then hide it and export the rest in <i>different</i> colours (no repeats).</p>
 
   <div class="upload-zone" id="zone-multi"
        ondragover="dragOver(event,'zone-multi')" ondragleave="dragLeave('zone-multi')"
@@ -1643,6 +1648,13 @@ const PALETTES = {
   colorblind: ['#000000','#E69F00','#56B4E9','#009E73','#F0E442','#0072B2','#D55E00','#CC79A7']
 };
 const DISPLAY_PALETTE = ['#38bdf8','#4ade80','#fbbf24','#a78bfa','#f87171','#2dd4bf','#fb923c','#e879f9'];
+// Multi-replica palette: the 8 display colours + 8 deeper, well-separated hues,
+// so up to 16 replicas get distinct, non-repeating colours. Colour is keyed to
+// each curve's fixed index, so hiding curves never recolours the rest — letting
+// you plot one subset, then hide it and plot the remainder in different colours.
+const MULTI_PALETTE = [...DISPLAY_PALETTE,
+  '#2563eb','#16a34a','#d97706','#7c3aed','#dc2626','#0d9488','#db2777','#65a30d'];
+function multiColor(i){ return MULTI_PALETTE[i % MULTI_PALETTE.length]; }
 
 // ================================================================
 // STATE
@@ -2007,7 +2019,7 @@ function parseMultiFile(file){
     const tt = normalizeTimeValues(rows.map(r=>r[0]), xUnit, file.name); const t=tt.values;
     let v = normalizeRMSDValues(rows.map(r=>r[1]), yUnit, file.name);
     const name = file.name.replace(/\.[^.]+$/,'');
-    state.multi.series.push({pts: t.map((x,i)=>({x,y:+v[i].toFixed(4)})), xkind:tt.kind});
+    state.multi.series.push({pts: t.map((x,i)=>({x,y:+v[i].toFixed(4)})), xkind:tt.kind, hidden:false});
     state.multi.names.push(name);
     state.multi.real = true;
     addBadge('multi-files-loaded', name, state.multi.series.length-1, 'removeMulti');
@@ -2880,8 +2892,32 @@ function resetMultiAxes(){
   renderMulti();
 }
 
+// ---- Multi-replica show/hide toggles ---------------------------------------
+function toggleMultiHidden(i){ const s=state.multi.series[i]; if(!s) return; s.hidden=!s.hidden; renderMulti(); }
+function multiSetAllHidden(flag){ state.multi.series.forEach(s=>s.hidden=!!flag); renderMulti(); }
+function renderMultiToggles(){
+  const leg=document.getElementById('multi-legend'); if(!leg) return;
+  const N=state.multi.series.length;
+  if(!N){ leg.innerHTML=''; return; }
+  const nVis=state.multi.series.filter(s=>!s.hidden).length;
+  const chips=state.multi.series.map((s,i)=>{
+    const vals=s.pts.map(p=>p.y), mean=(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(3);
+    const nm=state.multi.names[i]||('Replica '+(i+1)), c=multiColor(i);
+    return `<div class="rep-item rep-toggle${s.hidden?' rep-off':''}" onclick="toggleMultiHidden(${i})" title="Click to ${s.hidden?'show':'hide'} this curve">`+
+           `<div class="rep-dot" style="background:${s.hidden?'transparent':c};box-shadow:inset 0 0 0 1.5px ${c}"></div>`+
+           `<span>${nm} — ${mean} Å</span></div>`;
+  }).join('');
+  const ctrls = N>1
+    ? `<div class="rep-item rep-ctrl"><button class="btn" style="padding:2px 8px" onclick="multiSetAllHidden(false)">Show all</button>`+
+      `<button class="btn" style="padding:2px 8px" onclick="multiSetAllHidden(true)">Hide all</button>`+
+      `<span class="ctrl-label" style="color:var(--text3)">${nVis}/${N} shown · click a curve to hide/show</span></div>`
+    : '';
+  leg.innerHTML=chips+ctrls;
+}
+
 function renderMulti(){
   if(!state.multi.series.length) return;
+  renderMultiToggles();
   if(charts.multi) charts.multi.destroy();
   const view=document.getElementById('multi-view')?.value||'time';
   const ctx=document.getElementById('multiChart').getContext('2d');
@@ -2893,7 +2929,6 @@ function renderMulti(){
 
   if(view==='box'){
     renderMultiBox(ctx);
-    document.getElementById('multi-legend').innerHTML='';
     return;
   }
   if(view==='density'){
@@ -2904,31 +2939,28 @@ function renderMulti(){
     let datasets;
     if(pub){
       const win=parseInt(document.getElementById('multi-pubwin')?.value||50);
-      datasets=state.multi.series.flatMap((s,i)=>
-        bandDatasets(s.pts, win, DISPLAY_PALETTE[i%DISPLAY_PALETTE.length], state.multi.names[i]||`Replica ${i+1}`));
+      datasets=state.multi.series.flatMap((s,i)=> s.hidden ? [] :
+        bandDatasets(s.pts, win, multiColor(i), state.multi.names[i]||`Replica ${i+1}`));
     }else{
-      datasets=state.multi.series.map((s,i)=>({
+      datasets=state.multi.series.flatMap((s,i)=> s.hidden ? [] : [{
         label:state.multi.names[i]||`Replica ${i+1}`,data:s.pts,
-        borderColor:DISPLAY_PALETTE[i%DISPLAY_PALETTE.length],backgroundColor:'transparent',borderWidth:1.5,pointRadius:0,tension:0.2
-      }));
+        borderColor:multiColor(i),backgroundColor:'transparent',borderWidth:1.5,pointRadius:0,tension:0.2
+      }]);
     }
     charts.multi=new Chart(ctx,{
       type:'line', data:{datasets},
       options:{
         responsive:true,maintainAspectRatio:false,animation:false,
-        plugins:{legend:{display:true,position:'top',align:'start',labels:{color:TEXT_CLR,font:{size:fs(12)},boxWidth:14,boxHeight:3,filter:legFilter}}},
+        plugins:{legend:{display:true,position:'top',align:'start',labels:{color:TEXT_CLR,font:{size:fs(12)},boxWidth:14,boxHeight:3,filter:legFilter},
+          onClick:(e,it)=>{ let idx=state.multi.names.indexOf(it.text); if(idx<0){ const m=/Replica (\d+)/.exec(it.text||''); if(m) idx=+m[1]-1; } if(idx>=0) toggleMultiHidden(idx); }}},
         scales:{x:linearXAxis(allPts, timeAxisLabel(state.multi.series[0]?.xkind)),y:yax}
       }
     });
     maybeSweep(charts.multi);
+    const nVis=state.multi.series.filter(s=>!s.hidden).length;
     document.getElementById('multi-chart-title').textContent=
-      (state.multi.names.length)+' replica(s) — RMSD vs time'+(pub?' (mean ± SD)':'');
+      nVis+'/'+state.multi.names.length+' replica(s) shown — RMSD vs time'+(pub?' (mean ± SD)':'');
   }
-
-  document.getElementById('multi-legend').innerHTML=state.multi.series.map((s,i)=>{
-    const vals=s.pts.map(p=>p.y), mean=(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(3);
-    return`<div class="rep-item"><div class="rep-dot" style="background:${DISPLAY_PALETTE[i]}"></div>${state.multi.names[i]||'Replica '+(i+1)} — mean ${mean} Å</div>`;
-  }).join('');
 }
 
 // Box plot of RMSD distribution per compound/replica, with jittered raw points
@@ -2940,9 +2972,10 @@ function renderMultiBox(ctx){
   }
   const unit=document.getElementById('multi-unit')?.value||'A';
   const scale=unit==='nm'?0.1:1, uLabel=unit==='nm'?'nm':'Å';
-  const labels=state.multi.names.map((n,i)=>n||('Replica '+(i+1)));
-  const data=state.multi.series.map(s=>s.pts.map(p=>p.y*scale));
-  const col=i=>DISPLAY_PALETTE[i%DISPLAY_PALETTE.length];
+  const vis=state.multi.series.map((s,i)=>i).filter(i=>!state.multi.series[i].hidden);
+  const labels=vis.map(i=>state.multi.names[i]||('Replica '+(i+1)));
+  const data=vis.map(i=>state.multi.series[i].pts.map(p=>p.y*scale));
+  const col=k=>multiColor(vis[k]);   // k = position in filtered arrays → original colour index
 
   charts.multi=new Chart(ctx,{
     type:'boxplot',
@@ -2988,25 +3021,26 @@ function renderMultiDensity(ctx){
 
   // AUTO X bound: use the 99.5th percentile across all values so a single
   // outlier doesn't stretch the axis (was using absolute max → blew up to ~200)
-  const allValsFlat=state.multi.series.flatMap(s=>s.pts.map(p=>p.y*scale)).sort((a,b)=>a-b);
+  const allValsFlat=state.multi.series.filter(s=>!s.hidden).flatMap(s=>s.pts.map(p=>p.y*scale)).sort((a,b)=>a-b);
   const pct=arr=>arr[Math.min(arr.length-1, Math.floor(arr.length*0.995))]||1;
   const autoHi=niceCeil(pct(allValsFlat)*1.12);
   const hiBound=isFinite(xMaxIn)&&xMaxIn>0 ? xMaxIn : autoHi;
 
   let maxDensity=0;
-  const datasets=state.multi.series.map((s,i)=>{
+  const datasets=state.multi.series.flatMap((s,i)=>{
+    if(s.hidden) return [];
     const vals=s.pts.map(p=>p.y*scale);
     // KDE from 0 to hiBound (RMSD ≥ 0)
     const {xs,ys}=gaussianKDE(vals, bw, 0, hiBound);
     maxDensity=Math.max(maxDensity, ...ys);
-    const color=DISPLAY_PALETTE[i%DISPLAY_PALETTE.length];
-    return{
+    const color=multiColor(i);
+    return [{
       label:state.multi.names[i]||`Replica ${i+1}`,
       data:xs.map((x,k)=>({x, y:ys[k]})),
       borderColor:color, borderWidth:1.8,
       backgroundColor:fill?hexToRgba(color,0.28):'transparent',
       fill:fill?'origin':false, pointRadius:0, tension:0.25
-    };
+    }];
   });
 
   const yMax  = isFinite(yMaxIn)&&yMaxIn>0 ? yMaxIn : niceCeil(maxDensity*1.1);
