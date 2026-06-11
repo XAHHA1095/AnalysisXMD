@@ -1322,6 +1322,16 @@ time_ns,rmsd_A
     <input type="file" id="file-occ" accept=".dat,.txt,.csv" multiple onchange="handleOccFiles(event)">
     <div class="files-loaded" id="occ-files-loaded"></div>
     <div class="controls-row" id="occ-controls" style="display:none">
+      <div class="ctrl-group"><span class="ctrl-label">Interaction:</span>
+        <select id="occ-type" onchange="renderOcc()" title="Filter by interaction type. Applies to occupancy profiles computed from a trajectory; loaded occupancy files are shown as-is.">
+          <option value="all">All interactions</option>
+          <option value="hbond">Hydrogen bond</option>
+          <option value="saltbridge">Salt bridge</option>
+          <option value="pistacking">π–π stacking</option>
+          <option value="pication">π–cation</option>
+          <option value="halogen">Halogen bond</option>
+          <option value="hydrophobic">Hydrophobic</option>
+        </select></div>
       <div class="ctrl-group"><label><input type="checkbox" id="occ-labels" checked onchange="renderOcc()"> Show % labels</label></div>
       <div class="ctrl-group"><span class="ctrl-label">Min occupancy %:</span>
         <input type="number" id="occ-min" value="0" min="0" max="100" step="5" style="width:70px" oninput="renderOcc()"></div>
@@ -2872,19 +2882,29 @@ function renderOcc(){
   const cw=document.getElementById('occ-canvas-wrap'); if(cw) cw.style.display='block';
   const minOcc=parseFloat(document.getElementById('occ-min')?.value||0);
   const sortBy=document.getElementById('occ-sort')?.value||'seq';
+  const occType=document.getElementById('occ-type')?.value||'all';
+  // residue value for a series under the selected interaction type:
+  //   'all' (or a loaded file without per-type detail) → total occupancy (s.map)
+  //   a specific type → per-type occupancy from the computed profile (s.detail)
+  const valFor=(s,r)=>{
+    if(occType==='all' || !s.detail || !s.detail[r]) return s.map[r]||0;
+    return s.detail[r][occType]||0;
+  };
 
   const resSet=new Set();
-  state.occ.series.forEach(s=>Object.entries(s.map).forEach(([r,v])=>{ if(v>=minOcc) resSet.add(r); }));
+  state.occ.series.forEach(s=>Object.keys(s.map).forEach(r=>{
+    const v=valFor(s,r); if(v>=minOcc && (occType==='all'||v>0)) resSet.add(r);
+  }));
   let residues=[...resSet];
   const resNum=r=>+((r.match(/\d+/)||[0])[0]);
   if(sortBy==='max'){
-    const mx=r=>Math.max(...state.occ.series.map(s=>s.map[r]||0));
+    const mx=r=>Math.max(...state.occ.series.map(s=>valFor(s,r)));
     residues.sort((a,b)=>mx(b)-mx(a));
   } else residues.sort((a,b)=>resNum(a)-resNum(b)||a.localeCompare(b));
 
   const datasets=state.occ.series.map((s,i)=>({
     label:s.name,
-    data:residues.map(r=>+(s.map[r]||0).toFixed(1)),
+    data:residues.map(r=>+(valFor(s,r)).toFixed(1)),
     backgroundColor:multiColor(i), borderColor:multiColor(i), borderWidth:0, borderRadius:2, maxBarThickness:42
   }));
 
@@ -2904,7 +2924,7 @@ function renderOcc(){
       },
       scales:{
         x:{title:{display:true,text:'Protein residue',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:fs(11)},maxRotation:55,minRotation:0},grid:{display:false},border:{color:AXIS_CLR}},
-        y:{title:{display:true,text:'Occupancy (%)',color:TEXT_CLR,font:CHART_FONT},min:0,max:100,ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
+        y:{title:{display:true,text:occType==='all'?'Occupancy (%)':(({hbond:'H-bond',saltbridge:'Salt-bridge',pistacking:'π-stacking',pication:'π-cation',halogen:'Halogen-bond',hydrophobic:'Hydrophobic'}[occType]||'')+' occupancy (%)'),color:TEXT_CLR,font:CHART_FONT},min:0,max:100,ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
       }
     }
   });
@@ -2912,11 +2932,16 @@ function renderOcc(){
 
 function exportOccCSV(){
   if(!state.occ || !state.occ.series.length){ alert('No occupancy data to export.'); return; }
-  const resSet=new Set(); state.occ.series.forEach(s=>Object.keys(s.map).forEach(r=>resSet.add(r)));
-  const residues=[...resSet].sort((a,b)=>(+((a.match(/\d+/)||[0])[0]))-(+((b.match(/\d+/)||[0])[0])));
-  const head='residue,'+state.occ.series.map(s=>s.name).join(',');
-  const body=residues.map(r=>r+','+state.occ.series.map(s=>(s.map[r]||0).toFixed(1)).join(',')).join('\n');
-  dlBlob(head+'\n'+body,'text/csv','interaction_occupancy_by_ligand.csv');
+  // tidy/long format with the full per-type breakdown ('any' = total per residue)
+  const rows=['residue,ligand,interaction_type,occupancy_pct'];
+  state.occ.series.forEach(s=>{
+    const resAll=new Set([...Object.keys(s.map||{}), ...(s.detail?Object.keys(s.detail):[])]);
+    [...resAll].sort((a,b)=>(+((a.match(/\d+/)||[0])[0]))-(+((b.match(/\d+/)||[0])[0]))).forEach(r=>{
+      rows.push(`${r},${s.name},any,${(s.map[r]||0).toFixed(1)}`);
+      if(s.detail&&s.detail[r]) Object.entries(s.detail[r]).forEach(([t,v])=>rows.push(`${r},${s.name},${t},${(+v).toFixed(1)}`));
+    });
+  });
+  dlBlob(rows.join('\n'),'text/csv','interaction_occupancy.csv');
 }
 
 function renderHBTable(){
