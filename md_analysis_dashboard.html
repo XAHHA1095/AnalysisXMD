@@ -475,6 +475,7 @@ input[type=range].traj-slider{width:180px}
           <button class="btn btn-primary" onclick="computeTrajRMSF()">Compute RMSF</button>
           <button class="btn btn-primary" onclick="computeTrajRg()">Compute Rg</button>
           <button class="btn" onclick="computeTrajContactMap()">Avg. contact map</button>
+          <button class="btn btn-primary" onclick="computeInteractionOccupancy()" title="Per-residue ligand–protein interaction occupancy over the whole trajectory; adds a series to the comparison chart in Multi-Replica">🔗 Interaction occupancy</button>
           <span class="ctrl-label" id="traj-analysis-info" style="color:var(--text3)"></span>
         </div>
       </div>
@@ -5878,6 +5879,70 @@ function getTrajData(){
   if(trajFramesObj && trajFramesObj.coordinates && trajFramesObj.coordinates.length)
     return { nFrames:trajFramesObj.coordinates.length, coords:i=>trajFramesObj.coordinates[i] };
   return null;
+}
+
+// ---- Per-residue interaction occupancy over the whole trajectory -----------
+// Reuses the SAME validated detector frame-by-frame: updatePosition swaps only
+// the coordinates (topology — rings, charged groups, donors — is re-perceived
+// from the small ligand each frame), so the temporal profile is consistent with
+// the single-frame interaction analysis used in the validation. Ligand–protein
+// interactions ONLY. Runs in non-blocking chunks with a progress readout, and
+// adds the result as a series to the comparison chart in Multi-Replica.
+function computeInteractionOccupancy(){
+  if(!trajCheck()) return;
+  const ligRaw=(document.getElementById('ngl-lig-sel')?.value||'').trim();
+  const ligSel = ligRaw ? normalizeLigSel(ligRaw) : 'ligand';
+  let nLig=0; try{ nglComponent.structure.eachAtom(()=>nLig++, new NGL.Selection(ligSel)); }catch(e){}
+  if(!nLig){ alert('No ligand atoms matched "'+ligSel+'".\nSet your ligand in the Interactions / 3D section first (its residue name, e.g. PTC).'); return; }
+
+  const td=getTrajData(), N=td.nFrames;
+  const stride=Math.max(1, Math.ceil(N/300));          // evaluate ≤ ~300 frames
+  const cur=currentFrame||0;
+  const info=document.getElementById('traj-analysis-info');
+  const counts={}, anyCounts={}, resInfo={};
+  let nUsed=0, i=0;
+
+  function finish(){
+    try{ nglComponent.structure.updatePosition(td.coords(cur)); }catch(e){}   // restore the viewed frame's coordinates
+    try{ if(nglTrajComp && typeof gotoFrame==='function') gotoFrame(cur); }catch(e){}
+    if(!nUsed){ if(info) info.textContent='No frames evaluated.'; return; }
+    const detail={}, byRes={};
+    Object.entries(counts).forEach(([k,c])=>{
+      const idx=k.lastIndexOf('|'), rk=k.slice(0,idx), type=k.slice(idx+1);
+      (detail[rk]=detail[rk]||{})[type]=+(c/nUsed*100).toFixed(1);
+    });
+    Object.entries(anyCounts).forEach(([rk,c])=>{ byRes[rk]=+(c/nUsed*100).toFixed(1); });
+    if(!state.occ) state.occ={series:[]};
+    const map={}, detailByLabel={};
+    Object.entries(byRes).forEach(([rk,pct])=>{ map[resInfo[rk].label]=pct; });
+    Object.entries(detail).forEach(([rk,t])=>{ detailByLabel[resInfo[rk].label]=t; });
+    state.occ.series.push({name:(ligRaw||'ligand')+' · MD '+nUsed+'f', map, detail:detailByLabel});
+    addBadge('occ-files-loaded', state.occ.series[state.occ.series.length-1].name, state.occ.series.length-1, 'removeOcc');
+    renderOcc();
+    if(info) info.textContent=`✓ Interaction occupancy over ${nUsed} frames (stride ${stride}) — added to the comparison chart in Multi-Replica.`;
+    if(typeof switchTabByName==='function') switchTabByName('multi');
+  }
+  function chunk(){
+    const t0=performance.now();
+    while(i<N && performance.now()-t0<45){
+      try{ nglComponent.structure.updatePosition(td.coords(i)); }catch(e){}
+      const G=detectInteractions(ligSel, 4.5, {polarH:false});
+      const seen=new Set();
+      (G&&G.interactions?G.interactions:[]).forEach(it=>{
+        if(it.type==='vdw') return;                    // skip generic close contact
+        const rk=(it.resname||'')+'_'+it.resno+':'+(it.chain||'');
+        resInfo[rk]={label:(it.resname||'')+it.resno};
+        const kt=rk+'|'+it.type;
+        if(!seen.has(kt)){ seen.add(kt); counts[kt]=(counts[kt]||0)+1; }     // per (res,type) per frame
+        if(!seen.has('any:'+rk)){ seen.add('any:'+rk); anyCounts[rk]=(anyCounts[rk]||0)+1; } // any interaction per frame
+      });
+      nUsed++; i+=stride;
+    }
+    if(info) info.textContent=`Computing interaction occupancy… ${Math.min(i,N)}/${N}`;
+    if(i<N) setTimeout(chunk,0); else finish();
+  }
+  if(info) info.textContent='Computing interaction occupancy…';
+  setTimeout(chunk,0);
 }
 function trajAtomMeta(){
   const meta=[];
