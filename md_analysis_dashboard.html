@@ -1303,6 +1303,40 @@ time_ns,rmsd_A
     <button class="btn" onclick="exportMultiCSV()">⬇ Export CSV (raw)</button>
     <button class="btn" onclick="clearSeries('multi')">Clear all</button>
   </div>
+
+  <!-- ===== Per-residue interaction occupancy — compare ligands ===== -->
+  <div class="chart-card" id="occ-card" style="margin-top:26px;border-top:2px solid var(--bg3);padding-top:18px">
+    <div class="chart-header"><span class="chart-title">🧬 Per-residue interaction occupancy — compare ligands</span></div>
+    <p style="font-size:12px;color:var(--text2);margin:6px 0 12px">
+      Compare how <b>different ligands</b> engage the same target over the MD. Load <b>one occupancy file per ligand</b>
+      (cpptraj <code>hbond … avgout</code>, or a CSV <code>residue,occupancy%</code>). Each file = one ligand;
+      bars are grouped by residue and coloured per ligand (fixed colours, no repeats). Ideal for a congeneric series.
+    </p>
+    <div class="upload-zone" id="zone-occ" style="padding:18px"
+         ondragover="dragOver(event,'zone-occ')" ondragleave="dragLeave('zone-occ')"
+         ondrop="dropFileMultiple(event,'occ')" onclick="document.getElementById('file-occ').click()">
+      <div class="upload-icon" style="font-size:26px">📊</div>
+      <p>Drop or select <b>one occupancy file per ligand</b> · <code>.dat</code> <code>.txt</code> <code>.csv</code></p>
+    </div>
+    <input type="file" id="file-occ" accept=".dat,.txt,.csv" multiple onchange="handleOccFiles(event)">
+    <div class="files-loaded" id="occ-files-loaded"></div>
+    <div class="controls-row" id="occ-controls" style="display:none">
+      <div class="ctrl-group"><label><input type="checkbox" id="occ-labels" checked onchange="renderOcc()"> Show % labels</label></div>
+      <div class="ctrl-group"><span class="ctrl-label">Min occupancy %:</span>
+        <input type="number" id="occ-min" value="0" min="0" max="100" step="5" style="width:70px" oninput="renderOcc()"></div>
+      <div class="ctrl-group"><span class="ctrl-label">Sort residues by:</span>
+        <select id="occ-sort" onchange="renderOcc()"><option value="seq">sequence (number)</option><option value="max">max occupancy</option></select></div>
+    </div>
+    <div class="canvas-wrap" id="occ-canvas-wrap" style="height:330px;display:none"><canvas id="occChart"></canvas></div>
+    <div class="toolbar" id="occ-toolbar" style="display:none">
+      <button class="btn btn-primary" onclick="openExport('occ')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export figure
+      </button>
+      <button class="btn" onclick="exportOccCSV()">⬇ Export CSV (matrix)</button>
+      <button class="btn" onclick="clearOcc()">Clear all</button>
+    </div>
+  </div>
 </div>
 
 <!-- ================================================================ RADIUS OF GYRATION ================================================================ -->
@@ -1715,6 +1749,7 @@ function dropFileMultiple(e,type){
   document.getElementById('zone-'+type).classList.remove('drag-over');
   Array.from(e.dataTransfer.files).forEach(f=>{
     if(type==='rmsf') parseRMSFFile(f);
+    else if(type==='occ') parseOccFile(f);
     else parseMultiFile(f);
   });
 }
@@ -2746,6 +2781,142 @@ const hbBarLabels={
   }
 };
 try{ Chart.register(hbBarLabels); }catch(_){}
+
+// ================================================================
+// PER-RESIDUE INTERACTION OCCUPANCY — compare ligands (Multi-Replica)
+// One occupancy file per ligand → grouped bar chart (colour per ligand).
+// ================================================================
+const occBarLabels={
+  id:'occBarLabels',
+  afterDatasetsDraw(chart){
+    const on = chart.canvas?.id==='occChart' || chart.options?.plugins?.occBarLabels?.on;
+    if(!on) return;
+    const ctx=chart.ctx, fsz=Math.max(8, Math.round(chart.width*0.0085));
+    ctx.save();
+    ctx.font=`bold ${fsz}px Arial`; ctx.textAlign='center'; ctx.textBaseline='bottom';
+    chart.data.datasets.forEach((ds,di)=>{
+      const meta=chart.getDatasetMeta(di); if(!meta||meta.hidden) return;
+      meta.data.forEach((bar,i)=>{
+        const v=ds.data[i]; if(v==null||v<=0||!bar) return;
+        ctx.fillStyle=ds.backgroundColor;
+        ctx.fillText(Math.round(v)+'', bar.x, bar.y-2);
+      });
+    });
+    ctx.restore();
+  }
+};
+try{ Chart.register(occBarLabels); }catch(_){}
+
+function handleOccFiles(e){ Array.from(e.target.files).forEach(f=>parseOccFile(f)); e.target.value=''; }
+
+// Parse one occupancy file (cpptraj hbond avgout OR CSV "residue,occupancy%")
+// into a {RES123: pct} map. cpptraj input is filtered to protein residues.
+function occMapFromText(text){
+  const map={}; let any=false;
+  for(const line of text.split('\n')){
+    const t=line.trim();
+    if(!t||t.startsWith('#')||t.startsWith('@')||t.startsWith(';')) continue;
+    if(t.includes(',')){                                   // CSV: residue,occupancy
+      const c=t.split(','); const r0=(c[0]||'').trim();
+      const res = /^[A-Za-z]{2,4}\d+$/.test(r0) ? r0.toUpperCase() : hbResidueKey(r0);
+      const val=parseFloat(c[1]);
+      if(res && !isNaN(val)){ const pct=val>1?val:val*100; map[res]=Math.max(map[res]||0, pct); any=true; }
+      continue;
+    }
+    const p=t.split(/\s+/);                                // cpptraj hbond avgout
+    if(p.length>=5){
+      const frac=parseFloat(p[4]); if(isNaN(frac)) continue;
+      for(const lab of [p[0],p[1],p[2]]){
+        const key=hbResidueKey(lab); if(!key) continue;
+        const rn=(key.match(/^([A-Za-z]+)/)||[])[1];
+        if(!rn||!STD_AA.has(rn)) continue;                 // protein residues only
+        map[key]=Math.max(map[key]||0, frac*100); any=true;
+      }
+    }
+  }
+  return any?map:null;
+}
+
+function parseOccFile(file){
+  const r=new FileReader();
+  r.onload=ev=>{
+    const map=occMapFromText(ev.target.result);
+    if(!map){ alert(`No occupancy data found in ${file.name}.\nExpected cpptraj hbond avgout (Acceptor DonorH Donor Frames Frac …) or CSV "residue,occupancy%".`); return; }
+    if(!state.occ) state.occ={series:[]};
+    const name=file.name.replace(/\.[^.]+$/,'');
+    state.occ.series.push({name, map});
+    addBadge('occ-files-loaded', name, state.occ.series.length-1, 'removeOcc');
+    renderOcc();
+  };
+  r.readAsText(file);
+}
+
+function removeOcc(idx){
+  if(!state.occ) return;
+  state.occ.series.splice(idx,1);
+  rebuildBadges('occ-files-loaded', state.occ.series.map(s=>s.name), 'removeOcc');
+  if(!state.occ.series.length){ clearOcc(); return; }
+  renderOcc();
+}
+function clearOcc(){
+  state.occ={series:[]};
+  const el=document.getElementById('occ-files-loaded'); if(el) el.innerHTML='';
+  if(charts.occ){ charts.occ.destroy(); delete charts.occ; }
+  ['occ-controls','occ-canvas-wrap','occ-toolbar'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
+}
+
+function renderOcc(){
+  if(!state.occ || !state.occ.series.length) return;
+  ['occ-controls','occ-toolbar'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='flex'; });
+  const cw=document.getElementById('occ-canvas-wrap'); if(cw) cw.style.display='block';
+  const minOcc=parseFloat(document.getElementById('occ-min')?.value||0);
+  const sortBy=document.getElementById('occ-sort')?.value||'seq';
+
+  const resSet=new Set();
+  state.occ.series.forEach(s=>Object.entries(s.map).forEach(([r,v])=>{ if(v>=minOcc) resSet.add(r); }));
+  let residues=[...resSet];
+  const resNum=r=>+((r.match(/\d+/)||[0])[0]);
+  if(sortBy==='max'){
+    const mx=r=>Math.max(...state.occ.series.map(s=>s.map[r]||0));
+    residues.sort((a,b)=>mx(b)-mx(a));
+  } else residues.sort((a,b)=>resNum(a)-resNum(b)||a.localeCompare(b));
+
+  const datasets=state.occ.series.map((s,i)=>({
+    label:s.name,
+    data:residues.map(r=>+(s.map[r]||0).toFixed(1)),
+    backgroundColor:multiColor(i), borderColor:multiColor(i), borderWidth:0, borderRadius:2, maxBarThickness:42
+  }));
+
+  if(charts.occ) charts.occ.destroy();
+  const ctx=document.getElementById('occChart').getContext('2d');
+  const showLabels=document.getElementById('occ-labels')?.checked!==false;
+  charts.occ=new Chart(ctx,{
+    type:'bar',
+    data:{labels:residues, datasets},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false,
+      layout:{padding:{top:18}},
+      plugins:{
+        legend:{display:true, position:'top', align:'end', labels:{color:TEXT_CLR, font:{size:fs(11)}, boxWidth:12, boxHeight:12}},
+        tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.raw}% occupancy`}},
+        occBarLabels:{on:showLabels}
+      },
+      scales:{
+        x:{title:{display:true,text:'Protein residue',color:TEXT_CLR,font:CHART_FONT},ticks:{color:TICK_CLR,font:{size:fs(11)},maxRotation:55,minRotation:0},grid:{display:false},border:{color:AXIS_CLR}},
+        y:{title:{display:true,text:'Occupancy (%)',color:TEXT_CLR,font:CHART_FONT},min:0,max:100,ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
+      }
+    }
+  });
+}
+
+function exportOccCSV(){
+  if(!state.occ || !state.occ.series.length){ alert('No occupancy data to export.'); return; }
+  const resSet=new Set(); state.occ.series.forEach(s=>Object.keys(s.map).forEach(r=>resSet.add(r)));
+  const residues=[...resSet].sort((a,b)=>(+((a.match(/\d+/)||[0])[0]))-(+((b.match(/\d+/)||[0])[0])));
+  const head='residue,'+state.occ.series.map(s=>s.name).join(',');
+  const body=residues.map(r=>r+','+state.occ.series.map(s=>(s.map[r]||0).toFixed(1)).join(',')).join('\n');
+  dlBlob(head+'\n'+body,'text/csv','interaction_occupancy_by_ligand.csv');
+}
 
 function renderHBTable(){
   if(!state.hbdetail.rows.length) return;
