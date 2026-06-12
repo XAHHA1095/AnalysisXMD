@@ -80,6 +80,16 @@ input[type=text]{font-family:var(--mono);font-size:12px;color:var(--text);backgr
 .rep-off{opacity:.42}
 .rep-off span{text-decoration:line-through}
 .rep-ctrl{gap:8px}
+.filehelp{margin:10px 0 2px;border:1px solid var(--bg3);border-radius:8px;background:rgba(255,255,255,.02)}
+.filehelp>summary{cursor:pointer;padding:7px 12px;color:var(--cyan2);font-family:var(--mono);font-size:11px;user-select:none;list-style:none}
+.filehelp>summary::-webkit-details-marker{display:none}
+.filehelp>summary::before{content:'\24D8\00A0\00A0'}
+.filehelp[open]>summary{border-bottom:1px solid var(--bg3)}
+.filehelp .fh-body{padding:10px 13px;font-size:11px;line-height:1.6;color:var(--text2)}
+.filehelp .fh-what{font-style:italic;margin-bottom:8px}
+.filehelp .fh-eng{display:block;color:var(--text3);font-weight:700;font-size:10px;letter-spacing:.04em;text-transform:uppercase;margin-top:7px}
+.filehelp .fh-body code{display:block;background:var(--bg3);padding:5px 9px;border-radius:5px;font-size:11px;margin-top:3px;white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.filehelp .fh-note{margin-top:9px;color:var(--text3)}
 .annotation-panel{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:12px;display:none}
 .annotation-panel.visible{display:block}
 .annotation-panel textarea{width:100%;font-family:var(--mono);font-size:11px;color:var(--text);background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:8px;resize:vertical;min-height:60px;outline:none;margin-top:6px}
@@ -6173,7 +6183,66 @@ function computeTrajContactMap(){
 // ================================================================
 // INIT
 // ================================================================
+// ================================================================
+// "How to generate this file" notes — one collapsible panel injected under
+// each upload zone, with the cpptraj (AMBER) and gmx (GROMACS) commands and a
+// line on what each file is. Masks like :1-300 / :LIG are examples — adjust to
+// your system. Commands are arrays (one <code> line each) to stay readable.
+// ================================================================
+const FILE_HELP={
+  'zone-rmsd':{what:'RMSD vs time — 2 columns (time, RMSD). cpptraj output is already in Å; a GROMACS .xvg in nm/ps is auto-converted to Å/ns.',
+    amber:'rms ToFirst :1-300&!@H= out rmsd.dat mass',
+    gromacs:'gmx rms -s topol.tpr -f traj.xtc -o rmsd.xvg   # choose the Backbone group'},
+  'zone-rmsf':{what:'Per-residue RMS fluctuation — residue number and fluctuation (Å).',
+    amber:'atomicfluct out rmsf.dat :1-300 byres',
+    gromacs:'gmx rmsf -s topol.tpr -f traj.xtc -o rmsf.xvg -res'},
+  'zone-pca':{what:'PC1 × PC2 projection of the trajectory (essential-dynamics scatter).',
+    amber:['matrix covar name M @CA out cov.dat','diagmatrix M out evecs.dat vecs 2','projection evecs evecs.dat beg 1 end 2 :1-300@CA out pca.dat'],
+    gromacs:['gmx covar -s topol.tpr -f traj.xtc -o eigenval.xvg -v evec.trr','gmx anaeig -v evec.trr -f traj.xtc -s topol.tpr -2d pca.xvg -first 1 -last 2']},
+  'zone-dist':{what:'Distance between two groups vs time (e.g. ligand ↔ a key residue).',
+    amber:'distance d1 :LIG :85 out dist.dat',
+    gromacs:'gmx distance -s topol.tpr -f traj.xtc -n index.ndx -oall dist.xvg'},
+  'zone-hbcount':{what:'Number of protein–ligand H-bonds per frame (time series).',
+    amber:'hbond HB donormask :LIG acceptormask :1-300 out hbnum.dat',
+    gromacs:'gmx hbond -s topol.tpr -f traj.xtc -num hbnum.xvg'},
+  'zone-hbdetail':{what:'Per-H-bond occupancy TABLE: Acceptor, DonorH, Donor, Frames, Frac, AvgDist, AvgAng — the cpptraj “avgout” file.',
+    amber:'hbond HB :1-300,LIG dist 3.5 angle 135 avgout hbavg.dat',
+    note:'Type your ligand residue name in the box above to keep only its protein partners.'},
+  'zone-multi':{what:'One RMSD file per replica (same format as the RMSD tab) — load several at once to overlay and compare.',
+    amber:'rms ToFirst :1-300&!@H= out rep1_rmsd.dat mass     # repeat per replica',
+    gromacs:'gmx rms -s topol.tpr -f rep1.xtc -o rep1_rmsd.xvg'},
+  'zone-occ':{what:'One occupancy file PER LIGAND (cpptraj hbond “avgout”, or a CSV “residue,occupancy%”). Or compute it straight from a trajectory with the 🔗 Interaction occupancy button (covers every interaction type).',
+    amber:'hbond HB :1-300,LIG dist 3.5 angle 135 avgout occ_lig1.dat   # one file per ligand',
+    note:'CSV alternative — two columns per line, e.g.   SER125,28'},
+  'zone-rg':{what:'Radius of gyration vs time (compactness of the solute).',
+    amber:'radgyr out rg.dat :1-300 mass nomax',
+    gromacs:'gmx gyrate -s topol.tpr -f traj.xtc -o gyrate.xvg'},
+  'zone-cmap':{what:'Residue–residue contact map / matrix. Or compute an averaged Cα–Cα contact map from a loaded trajectory in the viewer panel.',
+    amber:'nativecontacts :1-300 :1-300 byresidue mindist map mapout cmap.gnu',
+    gromacs:'gmx mdmat -s topol.tpr -f traj.xtc -mean dm.xpm'}
+};
+function fhBlock(h){
+  let b = h.what ? `<div class="fh-what">${h.what}</div>` : '';
+  const eng=(label,cmds)=>{ if(!cmds) return ''; const arr=Array.isArray(cmds)?cmds:[cmds];
+    return `<div><span class="fh-eng">${label}</span>`+arr.map(c=>`<code>${c}</code>`).join('')+`</div>`; };
+  b+=eng('AMBER · cpptraj',h.amber);
+  b+=eng('GROMACS',h.gromacs);
+  if(h.note) b+=`<div class="fh-note">${h.note}</div>`;
+  return b;
+}
+function initFileHelp(){
+  Object.entries(FILE_HELP).forEach(([zoneId,h])=>{
+    const zone=document.getElementById(zoneId); if(!zone||!zone.parentNode) return;
+    if(zone.parentNode.querySelector('.filehelp[data-for="'+zoneId+'"]')) return;   // no duplicates
+    const d=document.createElement('details'); d.className='filehelp'; d.setAttribute('data-for',zoneId);
+    d.innerHTML=`<summary>How to generate this file</summary><div class="fh-body">${fhBlock(h)}</div>`;
+    let ref=zone;                                   // insert after the zone (and its hidden file input)
+    if(zone.nextElementSibling && zone.nextElementSibling.tagName==='INPUT') ref=zone.nextElementSibling;
+    ref.parentNode.insertBefore(d, ref.nextSibling);
+  });
+}
 window.addEventListener('load',()=>{
+  initFileHelp();
   // Dashboard starts empty — load your own data
   console.log('AnalysisXMD — Protein–Ligand MD Analysis Dashboard. Developed by Kevin Anthony Oré Maldonado (UNAB, Chile). Load your MD files to begin.');
 });
