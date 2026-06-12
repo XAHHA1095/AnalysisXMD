@@ -93,6 +93,14 @@ input[type=text]{font-family:var(--mono);font-size:12px;color:var(--text);backgr
 .filehelp .fh-legend{margin-top:11px;padding-top:9px;border-top:1px dashed var(--bg3);color:var(--text3);font-size:10.5px;line-height:1.8}
 .filehelp .fh-legend b{color:var(--cyan2);font-weight:700}
 .filehelp .fh-inline{display:inline;padding:1px 5px;background:var(--bg3);border-radius:4px;font-size:10px}
+#tab-help .chart-card{margin-bottom:18px}
+.help-eng{display:block;color:var(--text3);font-weight:700;font-size:10px;letter-spacing:.04em;text-transform:uppercase;margin:11px 0 3px}
+.help-pre{background:var(--bg3);border-radius:7px;padding:11px 13px;font-family:var(--mono);font-size:11.5px;line-height:1.65;color:var(--text);overflow-x:auto;white-space:pre;margin:0}
+#tab-help table{width:100%;border-collapse:collapse}
+#tab-help th,#tab-help td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--bg3);vertical-align:top}
+#tab-help th{color:var(--text3);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.03em}
+#tab-help td{color:var(--text2);font-family:var(--mono);font-size:10.5px}
+#tab-help a{color:var(--cyan2)}
 .annotation-panel{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:12px;display:none}
 .annotation-panel.visible{display:block}
 .annotation-panel textarea{width:100%;font-family:var(--mono);font-size:11px;color:var(--text);background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:8px;resize:vertical;min-height:60px;outline:none;margin-top:6px}
@@ -356,6 +364,7 @@ input[type=range].traj-slider{width:180px}
   <button class="nav-btn" onclick="switchTab('multi',this)">Multi-Replica</button>
   <button class="nav-btn" onclick="switchTab('rg',this)">Rg</button>
   <button class="nav-btn" onclick="switchTab('cmap',this)">Contact Map</button>
+  <button class="nav-btn" onclick="switchTab('help',this)">❔ Help</button>
 </nav>
 
 <!-- ================================================================ INTERACTIONS / 3D VIEWER ================================================================ -->
@@ -1545,6 +1554,82 @@ ALA1  VAL2  LEU3  ...
 
 <span class="hl"># Generate with MDAnalysis:</span>
 <span class="hl"># contacts = Contacts(u, select=("backbone","backbone"), method="radius_cut", radius=8).run()</span></pre>
+  </div>
+</div>
+
+<!-- ================================================================ HELP ================================================================ -->
+<div id="tab-help" class="section">
+  <p style="font-size:13px;color:var(--text2);margin-bottom:18px">How to prepare your trajectory and generate every file this dashboard reads. Commands use <code>&lt;placeholders&gt;</code> — replace each with your system (e.g. <code>&lt;protein&gt;</code> → <code>:1-596</code>, <code>&lt;ligand&gt;</code> → <code>:597</code>). AMBER (cpptraj) lines match a typical ff19SB/TIP3P setup; GROMACS lines are the general equivalents.</p>
+
+  <!-- 1. PBC / imaging -->
+  <div class="chart-card" style="border-left:3px solid var(--amber)">
+    <div class="chart-header"><span class="chart-title">⚠ First — fix periodic boundaries (imaging)</span></div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.7">
+      MD runs in a periodic box, so the solute can drift across an edge or split between images. <b>Re-image before any analysis</b> — otherwise RMSD, distances and contacts are wrong. Centre and wrap the solute, then (optionally) strip solvent to shrink the file.
+    </p>
+    <div class="help-eng">AMBER · cpptraj</div>
+    <pre class="help-pre">parm &lt;topology&gt;.prmtop
+trajin &lt;trajectory&gt;.nc
+autoimage                       # re-centre + wrap the solute into the box
+strip :WAT,Na+,Cl-,K+           # drop water + buffer ions (keep structural metals)
+trajout &lt;trajectory&gt;_imaged.nc
+run</pre>
+    <div class="help-eng">GROMACS</div>
+    <pre class="help-pre">gmx trjconv -s &lt;topology&gt;.tpr -f &lt;trajectory&gt;.xtc -pbc mol -center -o &lt;trajectory&gt;_imaged.xtc</pre>
+    <p style="font-size:11px;color:var(--text3);margin-top:8px">Load the <i>imaged</i> trajectory here. Aligning (fitting) on the protein is also recommended — cpptraj's <code>rms first …</code> does it; in GROMACS add a second <code>gmx trjconv -fit rot+trans</code>.</p>
+  </div>
+
+  <!-- 2. Two ways -->
+  <div class="chart-card">
+    <div class="chart-header"><span class="chart-title">Two ways to feed the dashboard</span></div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.75">
+      <b>A — Compute in the browser:</b> load a topology (<code>.prmtop</code> / <code>.psf</code> / <code>.gro</code>) + trajectory (<code>.nc</code> / <code>.dcd</code> / <code>.xtc</code> / <code>.trr</code>) in the <b>Interactions / 3D</b> viewer, then use the “Compute analysis from trajectory” buttons — RMSD, RMSF, Rg, contact map and 🔗 interaction occupancy. Nothing is uploaded; everything is client-side.<br><br>
+      <b>B — Plot pre-computed files:</b> generate them with cpptraj / gmx (commands below, and under each tab's “ⓘ How to generate this file”) and drop them in the matching tab.
+    </p>
+  </div>
+
+  <!-- 3. Time axis -->
+  <div class="chart-card">
+    <div class="chart-header"><span class="chart-title">The time axis (ns per frame)</span></div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.7">
+      cpptraj <code>.dat</code> files are indexed by <b>frame number</b>, not time. To put the x-axis in ns, the RMSD / Distance / H-bond tabs offer the <b>📄 from .in/.mdp</b> button (reads the time step from your MD input), reading the time straight from an AMBER NetCDF, or typing ns/frame by hand:
+    </p>
+    <pre class="help-pre">ns per frame  =  dt(ps) × ntwx ÷ 1000          # AMBER   (e.g. 0.002 × 5000 ÷ 1000 = 0.01 ns)
+              =  dt(ps) × nstxout ÷ 1000        # GROMACS
+              =  timestep(fs) × dcdfreq ÷ 1e6   # NAMD</pre>
+  </div>
+
+  <!-- 4. What each tab expects -->
+  <div class="chart-card">
+    <div class="chart-header"><span class="chart-title">What each tab expects (quick reference)</span></div>
+    <p style="font-size:11px;color:var(--text3);margin-bottom:10px">Every upload zone has a “ⓘ How to generate this file” note with the full command. Summary:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Tab</th><th>File / columns</th><th>AMBER cpptraj</th></tr></thead>
+        <tbody>
+          <tr><td>RMSD / Multi</td><td>time, RMSD</td><td>rms first &lt;protein&gt;@CA,C,N out … mass</td></tr>
+          <tr><td>RMSF</td><td>residue, fluctuation</td><td>atomicfluct out … &lt;protein&gt; byres</td></tr>
+          <tr><td>PCA</td><td>PC1, PC2</td><td>matrix covar → diagmatrix → projection</td></tr>
+          <tr><td>Distances</td><td>time, distance</td><td>distance d1 &lt;atom1&gt; &lt;atom2&gt; out …</td></tr>
+          <tr><td>H-Bonds (count)</td><td>time, N</td><td>hbond donormask &lt;ligand&gt; acceptormask &lt;protein&gt; out …</td></tr>
+          <tr><td>H-Bonds (occupancy)</td><td>Acceptor DonorH Donor Frames Frac …</td><td>hbond … avgout …</td></tr>
+          <tr><td>Interaction occupancy</td><td>one avgout / CSV per ligand</td><td>hbond … avgout &lt;ligand&gt;_occ.dat</td></tr>
+          <tr><td>Rg</td><td>time, Rg</td><td>radgyr &lt;protein&gt; out … mass</td></tr>
+          <tr><td>Contact Map</td><td>residue × residue</td><td>nativecontacts &lt;protein&gt; &lt;protein&gt; byresidue distance 7.0 out …</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 5. Docs -->
+  <div class="chart-card">
+    <div class="chart-header"><span class="chart-title">Documentation &amp; references</span></div>
+    <ul style="font-size:12px;color:var(--text2);line-height:2;list-style:none;padding:0;margin:6px 0 0">
+      <li>📘 <b>AmberTools / cpptraj manual</b> — <a href="https://ambermd.org/Manuals.php" target="_blank" rel="noopener">ambermd.org/Manuals.php</a> &nbsp;(cpptraj: rms, atomicfluct, radgyr, hbond, nativecontacts, matrix/diagmatrix/projection, autoimage, strip)</li>
+      <li>📗 <b>GROMACS manual</b> — <a href="https://manual.gromacs.org/" target="_blank" rel="noopener">manual.gromacs.org</a> &nbsp;(gmx rms, rmsf, gyrate, hbond, distance, covar/anaeig, mdmat, trjconv)</li>
+      <li>🧬 <b>NGL viewer</b> (3D engine) — <a href="https://nglviewer.org/" target="_blank" rel="noopener">nglviewer.org</a> &nbsp;— its selection language drives the ligand / residue boxes</li>
+      <li>🔗 <b>PLIP</b> — <a href="https://github.com/pharmai/plip" target="_blank" rel="noopener">github.com/pharmai/plip</a> &nbsp;·&nbsp; <b>ProLIF</b> — <a href="https://prolif.readthedocs.io/" target="_blank" rel="noopener">prolif.readthedocs.io</a> &nbsp;(interaction-detection references)</li>
+    </ul>
   </div>
 </div>
 
@@ -6195,35 +6280,38 @@ function computeTrajContactMap(){
 // Commands use <placeholders> for everything system-specific (escaped on render).
 const FILE_HELP={
   'zone-rmsd':{what:'RMSD vs time — 2 columns (time, RMSD). cpptraj output is already in Å; a GROMACS .xvg in nm/ps is auto-converted to Å/ns.',
-    amber:'rms ToFirst <protein>&!@H= out <output>.dat mass',
-    gromacs:'gmx rms -s <topology>.tpr -f <trajectory>.xtc -o <output>.xvg   # choose the Backbone group'},
-  'zone-rmsf':{what:'Per-residue RMS fluctuation — residue number and fluctuation (Å).',
+    amber:'rms first <protein>@CA,C,N out <output>.dat mass',
+    gromacs:'gmx rms -s <topology>.tpr -f <trajectory>.xtc -o <output>.xvg   # choose Backbone',
+    note:'“rms first …” also superposes the trajectory. For a LIGAND RMSD in that aligned frame, add:  rms <ligand> first nofit out <lig_rmsd>.dat mass'},
+  'zone-rmsf':{what:'Per-residue RMS fluctuation — residue number and fluctuation (Å). Run after aligning (e.g. after an rms line).',
     amber:'atomicfluct out <output>.dat <protein> byres',
     gromacs:'gmx rmsf -s <topology>.tpr -f <trajectory>.xtc -o <output>.xvg -res'},
-  'zone-pca':{what:'PC1 × PC2 projection of the trajectory (essential-dynamics scatter).',
-    amber:['matrix covar name M @CA out <covar>.dat','diagmatrix M out <evecs>.dat vecs 2','projection PROJ modes <evecs>.dat beg 1 end 2 @CA out <pca>.dat'],
+  'zone-pca':{what:'PC1 × PC2 projection (essential dynamics). Align first, then build/diagonalise the covariance matrix and project.',
+    amber:['rms first <protein>@CA,C,N','matrix covar name pcamat <protein>@CA out <covar>.dat','diagmatrix pcamat out <eigen>.dat vecs 10 name pcamodes','projection PCAproj modes pcamodes out <pca>.dat beg 1 end 2 <protein>@CA'],
     gromacs:['gmx covar -s <topology>.tpr -f <trajectory>.xtc -o <eigenval>.xvg -v <evec>.trr','gmx anaeig -v <evec>.trr -f <trajectory>.xtc -s <topology>.tpr -2d <pca>.xvg -first 1 -last 2']},
-  'zone-dist':{what:'Distance between two groups vs time (e.g. ligand ↔ a key residue).',
-    amber:'distance d1 <ligand> <residue> out <output>.dat',
-    gromacs:'gmx distance -s <topology>.tpr -f <trajectory>.xtc -n <index>.ndx -oall <output>.xvg'},
+  'zone-dist':{what:'Distance between two atoms/groups vs time (e.g. a ligand atom ↔ a residue atom).',
+    amber:'distance d1 <atom1> <atom2> out <output>.dat',
+    gromacs:'gmx distance -s <topology>.tpr -f <trajectory>.xtc -n <index>.ndx -oall <output>.xvg',
+    note:'<atom1>/<atom2> are atom selections, e.g.  :597@C24  and  :390@SG.'},
   'zone-hbcount':{what:'Number of protein–ligand H-bonds per frame (time series).',
     amber:'hbond HB donormask <ligand> acceptormask <protein> out <output>.dat',
     gromacs:'gmx hbond -s <topology>.tpr -f <trajectory>.xtc -num <output>.xvg'},
   'zone-hbdetail':{what:'Per-H-bond occupancy TABLE: Acceptor, DonorH, Donor, Frames, Frac, AvgDist, AvgAng — the cpptraj “avgout” file.',
-    amber:'hbond HB <search-mask> dist 3.5 angle 135 avgout <output>.dat',
-    note:'<search-mask> = the atoms to scan, e.g. protein + ligand “:1-220,LIG”. Type your ligand residue name in the box above to keep only its protein partners.'},
-  'zone-multi':{what:'One RMSD file per replica (same format as the RMSD tab) — load several at once to overlay and compare.',
-    amber:'rms ToFirst <protein>&!@H= out <replica>_rmsd.dat mass     # repeat per replica',
+    amber:['hbond Ldon donormask <ligand> acceptormask <protein> avgout <out_ligdonor>.dat','hbond Pdon donormask <protein> acceptormask <ligand> avgout <out_protdonor>.dat'],
+    note:'Both directions (ligand-as-donor and protein-as-donor) cover all protein–ligand H-bonds. Append  dist 3.0 angle 135  to set the cut-offs. Type the ligand name in the box above to keep only its partners.'},
+  'zone-multi':{what:'One RMSD file per replica (same format as the RMSD tab) — load several to overlay and compare.',
+    amber:'rms first <protein>@CA,C,N out <replica>_rmsd.dat mass     # repeat per replica',
     gromacs:'gmx rms -s <topology>.tpr -f <replica>.xtc -o <replica>_rmsd.xvg'},
-  'zone-occ':{what:'One occupancy file PER LIGAND (cpptraj hbond “avgout”, or a CSV “residue,occupancy%”). Or compute it straight from a trajectory with the 🔗 Interaction occupancy button (covers every interaction type).',
-    amber:'hbond HB <search-mask> dist 3.5 angle 135 avgout <ligand-name>_occ.dat   # one file per ligand',
-    note:'<search-mask> = protein + ligand (e.g. “:1-220,LIG”). CSV alternative — two columns per line, residue and %, e.g.   SER125,28'},
+  'zone-occ':{what:'One occupancy file PER LIGAND (cpptraj hbond “avgout”, or a CSV “residue,occupancy%”). Or compute it straight from a trajectory with the 🔗 Interaction occupancy button (every interaction type).',
+    amber:'hbond HB donormask <ligand> acceptormask <protein> avgout <ligname>_occ.dat   # one per ligand',
+    note:'CSV alternative — two columns per line, residue and %, e.g.   SER125,28'},
   'zone-rg':{what:'Radius of gyration vs time (compactness of the solute).',
-    amber:'radgyr out <output>.dat <protein> mass nomax',
+    amber:'radgyr <protein> out <output>.dat mass',
     gromacs:'gmx gyrate -s <topology>.tpr -f <trajectory>.xtc -o <output>.xvg'},
-  'zone-cmap':{what:'Residue–residue contact map / matrix. Or compute an averaged Cα–Cα contact map from a loaded trajectory in the viewer panel.',
-    amber:'nativecontacts <protein> <protein> byresidue mindist map mapout <output>.gnu',
-    gromacs:'gmx mdmat -s <topology>.tpr -f <trajectory>.xtc -mean <output>.xpm'}
+  'zone-cmap':{what:'Residue–residue contact map. Or compute an averaged Cα–Cα contact map from a loaded trajectory in the viewer panel.',
+    amber:'nativecontacts <protein> <protein> byresidue distance 7.0 out <output>.dat',
+    gromacs:'gmx mdmat -s <topology>.tpr -f <trajectory>.xtc -mean <output>.xpm',
+    note:'Ligand–protein contacts:  nativecontacts <ligand> <protein> byresidue distance 4.0 out <output>.dat'}
 };
 function fhBlock(h){
   const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
