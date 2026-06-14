@@ -2236,6 +2236,35 @@ function rebuildBadges(cid, names, removeFn){
   document.getElementById(cid).innerHTML='';
   names.forEach((n,i)=>addBadge(cid,n,i,removeFn));
 }
+// Occ-specific badges with inline rename on double-click
+function addOccBadge(idx){
+  const c=document.getElementById('occ-files-loaded'); if(!c) return;
+  const name=(state.occ?.series[idx]?.name)||'';
+  const b=document.createElement('span');
+  b.className='file-badge'; b.id='occ-files-loaded-badge-'+idx;
+  const ns=document.createElement('span');
+  ns.textContent=name; ns.title='Double-click to rename';
+  ns.style.cursor='text';
+  ns.ondblclick=()=>startOccRename(idx,b,ns);
+  const rm=document.createElement('span');
+  rm.className='file-badge-remove'; rm.textContent='×';
+  rm.onclick=()=>removeOcc(idx);
+  b.appendChild(ns); b.appendChild(rm); c.appendChild(b);
+}
+function startOccRename(idx,badge,ns){
+  const inp=document.createElement('input');
+  inp.type='text'; inp.value=state.occ.series[idx].name;
+  inp.style.cssText='border:none;background:transparent;color:inherit;font:inherit;width:auto;min-width:60px;max-width:180px;outline:1px solid var(--accent);border-radius:2px;padding:0 2px';
+  badge.replaceChild(inp,ns);
+  inp.focus(); inp.select();
+  const commit=()=>{ const v=inp.value.trim(); if(v) state.occ.series[idx].name=v; rebuildOccBadges(); renderOcc(); };
+  inp.onblur=commit;
+  inp.onkeydown=e=>{ if(e.key==='Enter') inp.blur(); if(e.key==='Escape') rebuildOccBadges(); };
+}
+function rebuildOccBadges(){
+  const c=document.getElementById('occ-files-loaded'); if(c) c.innerHTML='';
+  (state.occ?.series||[]).forEach((_,i)=>addOccBadge(i));
+}
 function removeRMSF(idx){
   state.rmsf.series.splice(idx,1);state.rmsf.names.splice(idx,1);
   rebuildBadges('rmsf-files-loaded',state.rmsf.names,'removeRMSF');
@@ -2970,7 +2999,7 @@ function parseOccFile(file){
       if(!state.occ) state.occ={series:[]};
       ligs.forEach(lig=>{
         state.occ.series.push({name:lig,map:byLigand[lig]});
-        addBadge('occ-files-loaded',lig,state.occ.series.length-1,'removeOcc');
+        addOccBadge(state.occ.series.length-1);
       });
       renderOcc(); return;
     }
@@ -2979,7 +3008,7 @@ function parseOccFile(file){
     if(!map){ alert(`No occupancy data found in ${file.name}.\nExpected cpptraj hbond avgout (Acceptor DonorH Donor Frames Frac …) or CSV "residue,occupancy%".`); return; }
     if(!state.occ) state.occ={series:[]};
     state.occ.series.push({name:basename,map});
-    addBadge('occ-files-loaded',basename,state.occ.series.length-1,'removeOcc');
+    addOccBadge(state.occ.series.length-1);
     renderOcc();
   };
   r.readAsText(file);
@@ -2988,7 +3017,7 @@ function parseOccFile(file){
 function removeOcc(idx){
   if(!state.occ) return;
   state.occ.series.splice(idx,1);
-  rebuildBadges('occ-files-loaded', state.occ.series.map(s=>s.name), 'removeOcc');
+  rebuildOccBadges();
   if(!state.occ.series.length){ clearOcc(); return; }
   renderOcc();
 }
@@ -6065,7 +6094,7 @@ function computeInteractionOccupancy(){
     Object.entries(byRes).forEach(([rk,pct])=>{ map[resInfo[rk].label]=pct; });
     Object.entries(detail).forEach(([rk,t])=>{ detailByLabel[resInfo[rk].label]=t; });
     state.occ.series.push({name:(ligRaw||'ligand')+' · MD '+nUsed+'f', map, detail:detailByLabel});
-    addBadge('occ-files-loaded', state.occ.series[state.occ.series.length-1].name, state.occ.series.length-1, 'removeOcc');
+    addOccBadge(state.occ.series.length-1);
     renderOcc();
     if(info) info.textContent=`✓ Interaction occupancy over ${nUsed} frames (stride ${stride}) — added to the comparison chart in Multi-Replica.`;
     if(typeof switchTabByName==='function') switchTabByName('multi');
