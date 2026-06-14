@@ -2949,12 +2949,37 @@ function occMapFromText(text){
 function parseOccFile(file){
   const r=new FileReader();
   r.onload=ev=>{
-    const map=occMapFromText(ev.target.result);
+    const text=ev.target.result;
+    const basename=file.name.replace(/\.[^.]+$/,'');
+    // Detect our own 4-column export: residue,ligand,interaction_type,occupancy_pct
+    const firstLine=(text.split('\n')[0]||'').trim().toLowerCase();
+    if(firstLine==='residue,ligand,interaction_type,occupancy_pct'){
+      const byLigand={};
+      for(const line of text.split('\n').slice(1)){
+        const t=line.trim(); if(!t) continue;
+        const c=t.split(','); if(c.length<4) continue;
+        const res=(c[0]||'').trim().toUpperCase();
+        const lig=(c[1]||'').trim()||basename;
+        const val=parseFloat(c[3]);
+        if(!res||isNaN(val)) continue;
+        if(!byLigand[lig]) byLigand[lig]={};
+        byLigand[lig][res]=Math.max(byLigand[lig][res]||0,val);
+      }
+      const ligs=Object.keys(byLigand);
+      if(!ligs.length){ alert(`No occupancy data found in ${file.name}.`); return; }
+      if(!state.occ) state.occ={series:[]};
+      ligs.forEach(lig=>{
+        state.occ.series.push({name:lig,map:byLigand[lig]});
+        addBadge('occ-files-loaded',lig,state.occ.series.length-1,'removeOcc');
+      });
+      renderOcc(); return;
+    }
+    // Legacy: 2-column CSV or cpptraj hbond avgout
+    const map=occMapFromText(text);
     if(!map){ alert(`No occupancy data found in ${file.name}.\nExpected cpptraj hbond avgout (Acceptor DonorH Donor Frames Frac …) or CSV "residue,occupancy%".`); return; }
     if(!state.occ) state.occ={series:[]};
-    const name=file.name.replace(/\.[^.]+$/,'');
-    state.occ.series.push({name, map});
-    addBadge('occ-files-loaded', name, state.occ.series.length-1, 'removeOcc');
+    state.occ.series.push({name:basename,map});
+    addBadge('occ-files-loaded',basename,state.occ.series.length-1,'removeOcc');
     renderOcc();
   };
   r.readAsText(file);
