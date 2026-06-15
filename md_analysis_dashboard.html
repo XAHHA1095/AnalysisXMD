@@ -1898,6 +1898,13 @@ function parseLines(text){
     .filter(r=>r.length>=2&&!isNaN(r[0])&&!isNaN(r[1]));
 }
 
+// Min/max over an array WITHOUT the spread operator. Math.min(...arr) / Math.max(...arr)
+// pass every element as a function argument and throw "Maximum call stack size exceeded"
+// once arr grows past ~10^5 elements — i.e. a long trajectory (200 ns @ 0.01 ns/frame =
+// 20k frames) or several replicas merged. These loop-based helpers are O(n) and never overflow.
+function arrMin(a){ let m=Infinity; for(let i=0;i<a.length;i++){ if(a[i]<m) m=a[i]; } return m; }
+function arrMax(a){ let m=-Infinity; for(let i=0;i<a.length;i++){ if(a[i]>m) m=a[i]; } return m; }
+
 // Decide unit conversions based on header + heuristics
 // Time-axis interpretation. MD_ENGINE: 'auto' | 'gromacs' | 'amber'.
 // NS_PER_FRAME (ns) converts a frame index to time; 0 = unknown → show "Frame".
@@ -1925,7 +1932,7 @@ function normalizeTimeValues(t, xUnit, filename){
   // A first column of consecutive integers is a FRAME index (cpptraj/VMD/ptraj),
   // NOT ps — don't divide by 1000 (the old bug that squashed a 10775-frame run to 0–10).
   if(frameLike) return dt>0 ? {values:t.map(x=>x*dt), kind:'ns'} : {values:t.slice(), kind:'frame'};
-  if(filename.endsWith('.xvg') && Math.max(...t)>100) return {values:t.map(x=>x/1000), kind:'ns'};
+  if(filename.endsWith('.xvg') && arrMax(t)>100) return {values:t.map(x=>x/1000), kind:'ns'};
   return {values:t.slice(), kind:'ns'};   // assume already ns (don't blindly /1000)
 }
 
@@ -2061,7 +2068,7 @@ function normalizeRMSDValues(v, yUnit, filename){
   // If header says Å → keep
   if(yUnit==='A') return v;
   // GROMACS .xvg without header info: if max < 2.0 assume nm
-  if(filename.endsWith('.xvg') && Math.max(...v)<2.0) return v.map(x=>x*10);
+  if(filename.endsWith('.xvg') && arrMax(v)<2.0) return v.map(x=>x*10);
   // cpptraj .dat/.txt: outputs in Å, do not convert
   return v;
 }
@@ -2106,7 +2113,7 @@ function parseFile(file, type){
       const nRep = rows[0].length-1;
       let reps = Array.from({length:nRep},(_,i)=>rows.map(r=>r[i+1]));
       reps = reps.map(rep => {
-        const mx = Math.max(...rep);
+        const mx = arrMax(rep);
         return (file.name.endsWith('.xvg')&&mx<10) ? rep.map(x=>x*10) : rep;
       });
       state.dist = {tArr:t, replicas:reps, real:true, fname:file.name, rawX, xUnit, xkind:tt.kind};
@@ -2138,7 +2145,7 @@ function parseRMSFFile(file){
     let res = rows.map(r=>r[0]);
     let v = rows.map(r=>hasThree?r[2]:r[1]);
     // Unit normalization: GROMACS .xvg RMSF is in nm
-    if(yUnit==='nm'||(file.name.endsWith('.xvg')&&Math.max(...v)<2.0)) v=v.map(x=>x*10);
+    if(yUnit==='nm'||(file.name.endsWith('.xvg')&&arrMax(v)<2.0)) v=v.map(x=>x*10);
     const name = file.name.replace(/\.[^.]+$/,'');
     state.rmsf.series.push({res,v});
     state.rmsf.names.push(name);
@@ -2214,7 +2221,7 @@ function hbResidueKey(s){
 // ================================================================
 function showStats(type, data, unit){
   const n=data.length, mean=data.reduce((a,b)=>a+b,0)/n;
-  const max=Math.max(...data), min=Math.min(...data);
+  const max=arrMax(data), min=arrMin(data);
   const std=Math.sqrt(data.reduce((a,b)=>a+(b-mean)*(b-mean),0)/n);
   const el=document.getElementById(type+'-stats');
   if(!el) return;
@@ -2476,7 +2483,7 @@ function fmtTick(v){
 
 function linearXAxis(pts, label){
   const times = pts.map(p=>p.x).filter(x=>isFinite(x));
-  const mn=Math.min(...times), mx=Math.max(...times);
+  const mn=arrMin(times), mx=arrMax(times);
   const tickVals=buildTimeTicks(mn, mx);
   return {
     type:'linear', min:mn, max:mx,            // tight fit — the line spans the full x-axis
@@ -2561,7 +2568,7 @@ function findRepresentativeFrame(){
 
   const vals=pts.map(p=>p.y);
   // KDE over the data range → find the mode (RMSD value with maximum density)
-  const {xs,ys}=gaussianKDE(vals, bw, Math.min(...vals), Math.max(...vals));
+  const {xs,ys}=gaussianKDE(vals, bw, arrMin(vals), arrMax(vals));
   let modeIdx=0;
   for(let k=1;k<ys.length;k++) if(ys[k]>ys[modeIdx]) modeIdx=k;
   const mode=xs[modeIdx];
@@ -2775,7 +2782,7 @@ function renderRMSFTable(){
   if(!state.rmsf.series.length) return;
   const topN=parseInt(document.getElementById('rmsf-top').value||10);
   const main=state.rmsf.series[0];
-  const merged=main.res.map((res,i)=>({res,rmsf:Math.max(...state.rmsf.series.map(s=>s.v[i]||0))}));
+  const merged=main.res.map((res,i)=>({res,rmsf:arrMax(state.rmsf.series.map(s=>s.v[i]||0))}));
   const sorted=[...merged].sort((a,b)=>b.rmsf-a.rmsf).slice(0,topN);
   const maxVal=sorted[0]?.rmsf||1;
   document.getElementById('rmsf-top-tbody').innerHTML=sorted.map((row,i)=>{
@@ -2821,10 +2828,10 @@ function renderPCA(){
       responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:ids.length>1,labels:{color:TEXT_CLR,font:{size:fs(12)},boxWidth:10}}},
       scales:{
-        x:{type:'linear',min:Math.min(...xVals),max:Math.max(...xVals),
+        x:{type:'linear',min:arrMin(xVals),max:arrMax(xVals),
            title:{display:true,text:'PC1 (Å)',color:TEXT_CLR,font:CHART_FONT},
            ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}},
-        y:{type:'linear',min:Math.min(...yVals),max:Math.max(...yVals),
+        y:{type:'linear',min:arrMin(yVals),max:arrMax(yVals),
            title:{display:true,text:'PC2 (Å)',color:TEXT_CLR,font:CHART_FONT},
            ticks:{color:TICK_CLR,font:{size:fs(11)}},grid:{color:GRID_CLR},border:{color:AXIS_CLR}}
       }
@@ -3051,7 +3058,7 @@ function renderOcc(){
   let residues=[...resSet];
   const resNum=r=>+((r.match(/\d+/)||[0])[0]);
   if(sortBy==='max'){
-    const mx=r=>Math.max(...state.occ.series.map(s=>valFor(s,r)));
+    const mx=r=>arrMax(state.occ.series.map(s=>valFor(s,r)));
     residues.sort((a,b)=>mx(b)-mx(a));
   } else residues.sort((a,b)=>resNum(a)-resNum(b)||a.localeCompare(b));
 
@@ -3184,7 +3191,7 @@ function gaussianKDE(values, bwScale, loBound, hiBound){
   const std=Math.sqrt(values.reduce((a,b)=>a+(b-mean)*(b-mean),0)/n)||1e-6;
   // Silverman's rule of thumb bandwidth, scaled by user factor
   const h=(bwScale||1)*1.06*std*Math.pow(n,-1/5)||1e-3;
-  const mn=Math.min(...values), mx=Math.max(...values);
+  const mn=arrMin(values), mx=arrMax(values);
   const pad=3*h;
   // Clamp lower bound to 0 — RMSD cannot be negative
   let lo=Math.max(loBound!==undefined?loBound:0, mn-pad);
@@ -5788,8 +5795,8 @@ function renderRg(){
     <div class="stat-chip">n = ${t.length}</div>
     <div class="stat-chip">mean Rg = ${mean} Å</div>
     <div class="stat-chip">SD = ${sd} Å</div>
-    <div class="stat-chip">min = ${Math.min(...mainVals).toFixed(3)} Å</div>
-    <div class="stat-chip">max = ${Math.max(...mainVals).toFixed(3)} Å</div>`;
+    <div class="stat-chip">min = ${arrMin(mainVals).toFixed(3)} Å</div>
+    <div class="stat-chip">max = ${arrMax(mainVals).toFixed(3)} Å</div>`;
   document.getElementById('rg-chart-title').textContent=`Radius of Gyration — ${RG_DATA.fname}`;
   if(charts['rg']){ charts['rg'].destroy(); delete charts['rg']; }
   rgChart=new Chart(ctx,{
