@@ -1935,6 +1935,7 @@ function reapplyTimeAll(){
   if(state.rmsd?.rawX){ const r=redo(state.rmsd); state.rmsd.pts=state.rmsd.pts.map((p,i)=>({...p,x:r.values[i]})); state.rmsd.xkind=r.kind; if(state.rmsd.pts.length) renderRMSD(); }
   if(state.hbcount?.rawX){ const r=redo(state.hbcount); state.hbcount.pts=state.hbcount.pts.map((p,i)=>({...p,x:r.values[i]})); state.hbcount.xkind=r.kind; if(state.hbcount.pts.length) renderHBCount(); }
   if(state.dist?.rawX){ const r=redo(state.dist); state.dist.tArr=r.values; state.dist.xkind=r.kind; if(state.dist.replicas?.length) renderDist(); }
+  if(state.multi?.series?.length){ let upd=false; state.multi.series.forEach(s=>{ if(!s.rawX) return; const r=normalizeTimeValues(s.rawX,s.xUnit||'auto',s.fname||''); s.pts=s.pts.map((p,i)=>({...p,x:r.values[i]})); s.xkind=r.kind; upd=true; }); if(upd) renderMulti(); }
 }
 function setNsPerFrame(v){
   NS_PER_FRAME = parseFloat(v)||0;
@@ -2163,7 +2164,7 @@ function parseMultiFile(file){
     const tt = normalizeTimeValues(rows.map(r=>r[0]), xUnit, file.name); const t=tt.values;
     let v = normalizeRMSDValues(rows.map(r=>r[1]), yUnit, file.name);
     const name = file.name.replace(/\.[^.]+$/,'');
-    state.multi.series.push({pts: t.map((x,i)=>({x,y:+v[i].toFixed(4)})), xkind:tt.kind, hidden:false});
+    state.multi.series.push({pts: t.map((x,i)=>({x,y:+v[i].toFixed(4)})), rawX:rows.map(r=>r[0]), xUnit, fname:file.name, xkind:tt.kind, hidden:false});
     state.multi.names.push(name);
     state.multi.real = true;
     addBadge('multi-files-loaded', name, state.multi.series.length-1, 'removeMulti');
@@ -3283,7 +3284,8 @@ function renderMulti(){
   if(view==='density'){
     renderMultiDensity(ctx);
   }else{
-    const allPts=state.multi.series[0].pts;
+    const visSeries=state.multi.series.filter(s=>!s.hidden);
+    const allPts=visSeries.flatMap(s=>s.pts);
     const yax={...yAxisOpts('RMSD (Å)'), min:0};   // origin at 0
     let datasets;
     if(pub){
@@ -3302,7 +3304,7 @@ function renderMulti(){
         responsive:true,maintainAspectRatio:false,animation:false,
         plugins:{legend:{display:true,position:'top',align:'start',labels:{color:TEXT_CLR,font:{size:fs(12)},boxWidth:14,boxHeight:3,filter:legFilter},
           onClick:(e,it)=>{ let idx=state.multi.names.indexOf(it.text); if(idx<0){ const m=/Replica (\d+)/.exec(it.text||''); if(m) idx=+m[1]-1; } if(idx>=0) toggleMultiHidden(idx); }}},
-        scales:{x:linearXAxis(allPts, timeAxisLabel(state.multi.series[0]?.xkind)),y:yax}
+        scales:{x:linearXAxis(allPts, timeAxisLabel(visSeries[0]?.xkind)),y:yax}
       }
     });
     maybeSweep(charts.multi);
