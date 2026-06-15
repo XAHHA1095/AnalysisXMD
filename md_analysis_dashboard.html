@@ -3285,7 +3285,10 @@ function renderMulti(){
     renderMultiDensity(ctx);
   }else{
     const visSeries=state.multi.series.filter(s=>!s.hidden);
-    const allPts=visSeries.flatMap(s=>s.pts);
+    // Compute full time range across all visible series without merging arrays
+    const xMn=visSeries.reduce((m,s)=>s.pts.length?Math.min(m,s.pts[0].x):m, Infinity);
+    const xMx=visSeries.reduce((m,s)=>s.pts.length?Math.max(m,s.pts[s.pts.length-1].x):m,-Infinity);
+    const allPts=(isFinite(xMn)&&isFinite(xMx))?[{x:xMn,y:0},{x:xMx,y:0}]:state.multi.series[0].pts;
     const yax={...yAxisOpts('RMSD (Å)'), min:0};   // origin at 0
     let datasets;
     if(pub){
